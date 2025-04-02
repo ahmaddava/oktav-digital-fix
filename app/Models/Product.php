@@ -1,0 +1,65 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+
+class Product extends Model
+{
+    use HasFactory;
+    protected $fillable = [
+        'product_name',
+        'price',
+        'stock',
+        'type', // Tambahkan ini
+        'sku',
+        'click',
+    ];
+
+    const TYPE_DIGITAL_PRINT = 'digital_print';
+    const TYPE_JASA = 'jasa';
+
+    protected static function booted()
+    {
+        static::creating(function (Product $product) {
+            $prefix = match($product->type) {
+                self::TYPE_DIGITAL_PRINT => 'DP',
+                self::TYPE_JASA => 'JS',
+                default => 'PRD',
+            };
+
+            if ($product->type === self::TYPE_JASA) {
+                $product->stock = 0; // atau null
+            }
+
+            // Hitung jumlah produk dengan tipe yang sama
+            $count = Product::where('type', $product->type)->count() + 1;
+            
+            // Format SKU: Prefix-001
+            $product->sku = sprintf(
+                '%s-%03d',
+                $prefix,
+                $count
+            );
+        });
+    }
+
+    public function invoices()
+    {
+        return $this->belongsToMany(Invoice::class, 'invoice_product')
+            ->withPivot('quantity');
+    }
+    
+    public function invoiceProducts(): BelongsToMany
+    {
+        return $this->belongsToMany(Invoice::class, 'invoice_product')
+            ->using(InvoiceProduct::class)
+            ->withPivot(['quantity', 'sort']);
+    }
+    protected $casts = [
+        'price' => 'integer',
+    ];
+}

@@ -1,0 +1,35 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+        Schema::create('invoices', function (Blueprint $table) {
+            $table->id();
+            $table->string('invoice_number')->unique();  // Kolom nomor invoice
+            $table->enum('status', ['paid', 'unpaid']);  // Status pembayaran
+            $table->string('name_customer');  // Menambahkan kolom name_customer
+            $table->string('customer_phone')->nullable();  // Menambahkan kolom customer_phone
+            $table->text('notes')->nullable();  // Kolom catatan
+            $table->decimal('dp', 10, 2)->nullable();  // Tambahkan kolom dp
+            $table->decimal('grand_total', 10, 2);  // Kolom grand_total
+            $table->enum('payment_method', ['transfer', 'cash']);; 
+            $table->timestamps();  // Kolom created_at dan updated_at
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::dropIfExists('invoices');
+    }
+};
