@@ -19,7 +19,7 @@ return new class extends Migration
             $table->enum('type', ['digital_print', 'jasa'])
                   ->default('digital_print'); // Tambahkan default value
             $table->string('sku')->unique();
-            $table->string('click')->nullable();
+            $table->integer('click')->nullable();
             $table->timestamps();
         });
     }
