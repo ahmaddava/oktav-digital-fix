@@ -12,6 +12,7 @@ use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Filament\Notifications\Notification;
 
 class ProductionResource extends Resource
 {
@@ -22,7 +23,6 @@ class ProductionResource extends Resource
     {
         return $form
             ->schema([
-                // Ganti kode sesuai dengan struktur tabel Anda
                 Forms\Components\Select::make('invoice_id')
                     ->label('Invoice')
                     ->options(function () {
@@ -33,14 +33,13 @@ class ProductionResource extends Resource
                     ->searchable()
                     ->required(),
 
-                // Kode lainnya...
                 Forms\Components\Select::make('machine_type')
                     ->label('Mesin')
                     ->options([
-                        Production::MESIN_1 => 'Mesin 1',
-                        Production::MESIN_2 => 'Mesin 2',
+                        'mesin_1' => 'Mesin 1',
+                        'mesin_2' => 'Mesin 2',
                     ])
-                    ->default(Production::MESIN_1)
+                    ->default('mesin_1')
                     ->required(),
 
                 Forms\Components\TextInput::make('failed_prints')
@@ -49,38 +48,23 @@ class ProductionResource extends Resource
                     ->default(0)
                     ->required(),
 
-                Forms\Components\TextInput::make('total_clicks')
-                    ->label('Total Clicks')
-                    ->numeric()
-                    ->required()
-                    ->disabled()
-                    ->dehydrated()
-                    ->helperText('Dihitung otomatis berdasarkan produk'),
-
-                Forms\Components\TextInput::make('total_counter')
-                    ->label('Total Counter')
-                    ->numeric()
-                    ->required()
-                    ->default(fn ($get) => $get('total_clicks'))
-                    ->helperText('Boleh diedit sesuai kebutuhan')
-                    ->columnSpanFull(),
-
                 Forms\Components\Textarea::make('notes')
                     ->label('Catatan')
                     ->columnSpanFull(),
 
                 Forms\Components\Hidden::make('is_adjustment')
                     ->default(0), // Semua production manual bukan adjustment
-
-                Forms\Components\Toggle::make('status')
-                    ->label('Selesai')
-                    ->onColor('success')
-                    ->offColor('danger')
-                    ->onIcon('heroicon-m-check')
-                    ->offIcon('heroicon-m-x-mark')
-                    ->default(false)
+                
+                Forms\Components\Radio::make('status')
+                    ->label('Status')
+                    ->options([
+                        'pending' => 'Pending',
+                        'completed' => 'Selesai',
+                    ])
+                    ->default('pending')
+                    ->inline()
                     ->afterStateUpdated(function (Forms\Set $set, $state) {
-                        if ($state) {
+                        if ($state === 'completed') {
                             $set('completed_at', now());
                         } else {
                             $set('completed_at', null);
@@ -106,8 +90,8 @@ class ProductionResource extends Resource
                     ->label('Mesin')
                     ->badge()
                     ->colors([
-                        'primary' => fn ($state): bool => $state === Production::MESIN_1,
-                        'success' => fn ($state): bool => $state === Production::MESIN_2,
+                        'primary' => fn ($state): bool => $state === 'mesin_1',
+                        'success' => fn ($state): bool => $state === 'mesin_2',
                     ]),
                 
                 Tables\Columns\TextColumn::make('status')
@@ -133,11 +117,6 @@ class ProductionResource extends Resource
                     ->label('Gagal Cetak')
                     ->numeric()
                     ->sortable(),
-                
-                Tables\Columns\TextColumn::make('completed_at')
-                    ->label('Tanggal Selesai')
-                    ->dateTime()
-                    ->sortable(),
             ])
             ->filters([
                 //
@@ -150,10 +129,84 @@ class ProductionResource extends Resource
                 });
             })
             ->actions([
-                Tables\Actions\EditAction::make(),
+                // Action untuk mencatat gagal cetak
+                Tables\Actions\Action::make('updateFailedPrints')
+                    ->label('Update Gagal Cetak')
+                    ->icon('heroicon-o-exclamation-triangle')
+                    ->color('warning')
+                    ->visible(fn (Production $record): bool => $record->status === 'pending')
+                    ->form([
+                        Forms\Components\TextInput::make('failed_prints')
+                            ->label('Jumlah Gagal Cetak')
+                            ->required()
+                            ->numeric()
+                            ->default(function (Production $record) {
+                                return $record->failed_prints;
+                            }),
+                        Forms\Components\Textarea::make('notes')
+                            ->label('Catatan')
+                            ->default(function (Production $record) {
+                                return $record->notes;
+                            }),
+                    ])
+                    ->action(function (Production $record, array $data): void {
+                        // Simply update the record - the model observers will handle
+                        // the counter calculations and stock reduction automatically
+                        $record->update([
+                            'failed_prints' => $data['failed_prints'],
+                            'notes' => $data['notes'],
+                        ]);
+
+                        Notification::make()
+                            ->title('Gagal cetak berhasil diupdate')
+                            ->success()
+                            ->send();
+                    }),
+
+                // Action untuk menyelesaikan produksi
+                Tables\Actions\Action::make('completeProduction')
+                    ->label('Selesai Produksi')
+                    ->icon('heroicon-o-check-circle')
+                    ->color('success')
+                    ->visible(fn (Production $record): bool => $record->status === 'pending')
+                    ->requiresConfirmation()
+                    ->action(function (Production $record): void {
+                        $record->update([
+                            'status' => 'completed',
+                            'completed_at' => now(),
+                        ]);
+
+                        Notification::make()
+                            ->title('Produksi selesai')
+                            ->success()
+                            ->send();
+                    }),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
+                    // Action untuk menyelesaikan produksi secara bulk
+                    Tables\Actions\BulkAction::make('completeMultipleProductions')
+                        ->label('Selesai Produksi')
+                        ->icon('heroicon-o-check-circle')
+                        ->color('success')
+                        ->requiresConfirmation()
+                        ->deselectRecordsAfterCompletion()
+                        ->action(function (Tables\Actions\BulkAction $action, array $data): void {
+                            $action->getRecords()->each(function (Production $record): void {
+                                if ($record->status === 'pending') {
+                                    $record->update([
+                                        'status' => 'completed',
+                                        'completed_at' => now(),
+                                    ]);
+                                }
+                            });
+
+                            Notification::make()
+                                ->title('Semua produksi terpilih telah diselesaikan')
+                                ->success()
+                                ->send();
+                        }),
+
                     Tables\Actions\DeleteBulkAction::make(),
                 ]),
             ]);

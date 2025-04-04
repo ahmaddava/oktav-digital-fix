@@ -13,12 +13,15 @@ return new class extends Migration
     {
         Schema::create('productions', function (Blueprint $table) {
             $table->id();
+            $table->foreignId('invoice_id')->nullable()->constrained();
             $table->enum('machine_type', ['mesin_1', 'mesin_2'])->default('mesin_1');
             $table->enum('status', ['pending', 'completed'])->default('pending');
             $table->integer('failed_prints')->default(0);
             $table->integer('total_clicks')->default(0);
             $table->integer('total_counter')->default(0);
             $table->text('notes')->nullable();
+            $table->boolean('is_adjustment')->default(0);
+            $table->integer('adjustment_value')->nullable();
             $table->timestamp('completed_at')->nullable();
             $table->timestamps();
         });

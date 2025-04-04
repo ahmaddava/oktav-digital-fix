@@ -2,96 +2,148 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Production extends Model
 {
+    use HasFactory;
+
     const MESIN_1 = 'mesin_1';
     const MESIN_2 = 'mesin_2';
-    
-    // Hapus $with jika tidak diperlukan
-    // protected $with = ['invoice'];
     
     protected $attributes = [
         'status' => 'pending', // Default status saat produksi dibuat
     ];
     
     protected $fillable = [
-        'invoice_id', // Tetap ada di fillable meskipun tidak ada di database
+        'invoice_id',
         'machine_type',
-        'completed_at',
         'status',
-        'completed_at',
         'failed_prints',
         'total_clicks',
         'total_counter',
-        'notes'
+        'notes',
+        'is_adjustment',
+        'adjustment_value',
+        'completed_at',
+    ];
+
+    protected $casts = [
+        'completed_at' => 'datetime',
+        'is_adjustment' => 'boolean',
     ];
 
     public function invoice(): BelongsTo
     {
-        // Jika kolom invoice_id tidak ada di tabel, gunakan relasi alternatif
-        // Misal, dengan invoice_number atau relasi lain
-        
-        // Atau gunakan null untuk sementara
         return $this->belongsTo(Invoice::class)->withDefault();
     }
 
     protected static function booted()
     {
+        // Before saving (new or update)
         static::saving(function ($production) {
-            // Hitung total clicks (tanpa bergantung pada invoice_id)
+            // Hitung total clicks dan counter
             $production->total_clicks = $production->calculateTotalClicks();
             
             // Jika tidak ada perubahan eksplisit pada total_counter, gunakan nilai default
-            if ($production->isDirty('total_counter')) {
-                // Total counter sudah diubah secara manual, gunakan nilai tersebut
-            } else {
-                // Set nilai default untuk total_counter berdasarkan perhitungan
+            if (!$production->isDirty('total_counter')) {
                 $production->total_counter = $production->calculateTotalCounter();
+            }
+
+            // Set completed_at jika status completed
+            if ($production->status === 'completed' && empty($production->completed_at)) {
+                $production->completed_at = now();
+            }
+        });
+
+        // After creating a new record - reduce stock for failed prints
+        static::created(function ($production) {
+            // Reduce stock if there are failed prints
+            if ($production->failed_prints > 0) {
+                $production->reduceStockForFailedPrints($production->failed_prints);
+            }
+        });
+
+        // After updating a record - check for changes in failed_prints
+        static::updated(function ($production) {
+            if ($production->wasChanged('failed_prints')) {
+                $oldFailedPrints = $production->getOriginal('failed_prints') ?? 0;
+                $newFailedPrints = $production->failed_prints;
+                
+                // If failed_prints increased, reduce additional stock
+                if ($newFailedPrints > $oldFailedPrints) {
+                    $additionalFailedPrints = $newFailedPrints - $oldFailedPrints;
+                    $production->reduceStockForFailedPrints($additionalFailedPrints);
+                }
             }
         });
     }
     
-    // Hitung total clicks tanpa bergantung pada invoice
+    // Hitung total clicks dengan failed prints yang ikut dihitung
     public function calculateTotalClicks()
     {
-        // Jika tidak ada invoice relation, gunakan nilai default atau logika alternatif
         $totalClicks = 0;
         
-        // Jika ada relasi invoice dan products
         if ($this->invoice && $this->invoice->exists && $this->invoice->products) {
+            // Pertama hitung clicks untuk jumlah produk normal
             $totalClicks = $this->invoice->products
-                ->where('type', Product::TYPE_DIGITAL_PRINT)
-                ->sum(function ($product) {
-                    $quantity = $product->pivot->quantity;
-                    $clicks = $product->click ?? 0;
-                    return ($quantity + $this->failed_prints) * $clicks;
-                });
-        }
-        
-        return $totalClicks;
-    }
-
-    // Hitung total counter tanpa bergantung pada invoice
-    public function calculateTotalCounter()
-    {
-        // Jika tidak ada invoice relation, gunakan nilai default atau logika alternatif
-        $totalCounter = 0;
-        
-        // Jika ada relasi invoice dan products
-        if ($this->invoice && $this->invoice->exists && $this->invoice->products) {
-            $totalCounter = $this->invoice->products
                 ->where('type', Product::TYPE_DIGITAL_PRINT)
                 ->sum(function ($product) {
                     $quantity = $product->pivot->quantity;
                     $clicks = $product->click ?? 0;
                     return $quantity * $clicks;
                 });
+            
+            // Kemudian tambahkan clicks untuk failed prints
+            // Failed prints dihitung per produk sesuai clicks produk
+            if ($this->failed_prints > 0) {
+                $failedPrintsClicks = $this->invoice->products
+                    ->where('type', Product::TYPE_DIGITAL_PRINT)
+                    ->sum(function ($product) {
+                        $clicks = $product->click ?? 0;
+                        return $this->failed_prints * $clicks;
+                    });
+                
+                $totalClicks += $failedPrintsClicks;
+            }
         }
         
-        return $totalCounter;
+        return $totalClicks;
+    }
+
+    // Hitung total counter (sama dengan total clicks untuk konsistensi)
+    public function calculateTotalCounter()
+    {
+        return $this->calculateTotalClicks();
+    }
+    
+    // Helper method to reduce stock for failed prints
+    public function reduceStockForFailedPrints($failedPrintCount)
+    {
+        if ($failedPrintCount <= 0) {
+            return;
+        }
+        
+        // Get associated invoice and its products
+        if ($this->invoice && $this->invoice->exists && $this->invoice->products) {
+            foreach ($this->invoice->products as $product) {
+                // Reduce stock by exactly the number of failed prints
+                // NOT multiplied by quantity - just the direct number of failed prints
+                $product->decrement('stock', $failedPrintCount);
+            }
+        }
+    }
+    
+    // Helper method for the resource to get invoices available for production
+    public static function getPendingProductions()
+    {
+        return self::where('status', 'pending')
+            ->where(function ($query) {
+                $query->where('is_adjustment', 0)
+                    ->orWhereNull('is_adjustment');
+            });
     }
 }

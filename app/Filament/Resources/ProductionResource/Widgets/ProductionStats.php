@@ -6,14 +6,15 @@ use Filament\Widgets\StatsOverviewWidget;
 use Filament\Widgets\StatsOverviewWidget\Stat;
 use App\Models\Production;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class ProductionStats extends StatsOverviewWidget
 {
-    // Override polling interval method for Filament 3.3
+    // Increase polling interval to reduce server load
     protected function getPollingInterval(): ?string
     {
-        return '10s';
+        return '30s'; // Increased from 10s to 30s
     }
 
     // Add method to listen for refresh events
@@ -23,61 +24,75 @@ class ProductionStats extends StatsOverviewWidget
         
         // Add listener for refresh-stats event
         $this->listen('refresh-stats', function () {
+            // Clear relevant caches before refreshing
+            Cache::forget('production_stats_current');
+            Cache::forget('production_stats_previous');
             $this->refresh();
         });
     }
 
     protected function getStats(): array
     {
-        // Ambil filter atau gunakan bulan berjalan
+        // Get filters or use current month
         $from = $this->filters['from'] ?? null;
         $until = $this->filters['until'] ?? null;
 
-        // Tentukan periode bulan yang ditampilkan
+        // Define the period shown
         $currentPeriod = $this->getDatePeriod($from, $until);
         $previousPeriod = $this->getPreviousPeriod($currentPeriod['start']);
 
-        // Query untuk periode saat ini dan sebelumnya (khusus clicks)
-        $currentClickQuery = Production::whereBetween('created_at', [$currentPeriod['start'], $currentPeriod['end']]);
-        $previousClickQuery = Production::whereBetween('created_at', [$previousPeriod['start'], $previousPeriod['end']]);
+        // Generate cache keys based on date periods
+        $currentCacheKey = 'production_stats_current_' . $currentPeriod['start']->format('Y-m-d') . '_' . $currentPeriod['end']->format('Y-m-d');
+        $previousCacheKey = 'production_stats_previous_' . $previousPeriod['start']->format('Y-m-d') . '_' . $previousPeriod['end']->format('Y-m-d');
 
-        // Current clicks
-        $currentClicks = $this->getAggregatedResults($currentClickQuery);
-        $previousClicks = $this->getAggregatedResults($previousClickQuery);
+        // Get current clicks (with caching)
+        $currentClicks = Cache::remember($currentCacheKey, 300, function () use ($currentPeriod) {
+            $currentClickQuery = Production::whereBetween('created_at', [$currentPeriod['start'], $currentPeriod['end']]);
+            return $this->getAggregatedResults($currentClickQuery);
+        });
 
-        // Ambil total clicks per mesin
+        // Get previous clicks (with caching)
+        $previousClicks = Cache::remember($previousCacheKey, 300, function () use ($previousPeriod) {
+            $previousClickQuery = Production::whereBetween('created_at', [$previousPeriod['start'], $previousPeriod['end']]);
+            return $this->getAggregatedResults($previousClickQuery);
+        });
+
+        // Get total clicks per machine
         $mesin1Current = $currentClicks[Production::MESIN_1]['total_clicks'] ?? 0;
         $mesin2Current = $currentClicks[Production::MESIN_2]['total_clicks'] ?? 0;
         $mesin1Previous = $previousClicks[Production::MESIN_1]['total_clicks'] ?? 0;
         $mesin2Previous = $previousClicks[Production::MESIN_2]['total_clicks'] ?? 0;
 
-        // Akumulasi counter dari seluruh data - Gunakan nilai counter yang di-input
-        $counterResults = Production::selectRaw('machine_type, SUM(total_counter) as total_counter')
-            ->groupBy('machine_type')
-            ->get()
-            ->keyBy('machine_type')
-            ->mapWithKeys(fn ($item) => [
-                $item['machine_type'] => $item['total_counter'],
-            ])
-            ->toArray();
+        // Get counter values (with caching)
+        $counterResults = Cache::remember('production_counter_totals', 300, function () {
+            return Production::select('machine_type')
+                ->selectRaw('SUM(total_counter) as total_counter')
+                ->groupBy('machine_type')
+                ->get()
+                ->keyBy('machine_type')
+                ->mapWithKeys(fn ($item) => [
+                    $item['machine_type'] => $item['total_counter'],
+                ])
+                ->toArray();
+        });
 
         $mesin1Counter = $counterResults[Production::MESIN_1] ?? 0;
         $mesin2Counter = $counterResults[Production::MESIN_2] ?? 0;
-        $totalCounterCurrent = $mesin1Counter + $mesin2Counter;
-        
-        // Total clicks bulan ini dari semua mesin
-        $totalClicksCurrent = $mesin1Current + $mesin2Current;
+
+        // Pre-compute descriptions for better performance
+        $mesin1Description = $this->getTrendDescription($mesin1Current, $mesin1Previous);
+        $mesin2Description = $this->getTrendDescription($mesin2Current, $mesin2Previous);
 
         return [
             Stat::make('Clicks Mesin 1 - ' . $currentPeriod['label'], number_format($mesin1Current))
-                ->description($this->getTrendDescription($mesin1Current, $mesin1Previous))
-                ->color('primary')
-                ->icon('heroicon-m-arrow-trending-up'),
+                ->description($mesin1Description)
+                ->color($this->getTrendColor($mesin1Current, $mesin1Previous))
+                ->icon($this->getTrendIcon($mesin1Current, $mesin1Previous)),
 
             Stat::make('Clicks Mesin 2 - ' . $currentPeriod['label'], number_format($mesin2Current))
-                ->description($this->getTrendDescription($mesin2Current, $mesin2Previous))
-                ->color('success')
-                ->icon('heroicon-m-arrow-trending-up'),
+                ->description($mesin2Description)
+                ->color($this->getTrendColor($mesin2Current, $mesin2Previous))
+                ->icon($this->getTrendIcon($mesin2Current, $mesin2Previous)),
 
             Stat::make('Counter Mesin 1', number_format($mesin1Counter))
                 ->description('Akumulasi semua counter mesin 1')
@@ -88,23 +103,15 @@ class ProductionStats extends StatsOverviewWidget
                 ->description('Akumulasi semua counter mesin 2')
                 ->color('warning')
                 ->icon('heroicon-m-cpu-chip'),
-
-            Stat::make('Total Clicks', number_format($totalClicksCurrent))
-                ->description('Total klik dari semua mesin bulan ini')
-                ->color('info')
-                ->icon('heroicon-o-chart-bar'),
-
-            Stat::make('Total Counter', number_format($totalCounterCurrent))
-                ->description('Total counter semua mesin sejak awal produksi')
-                ->color('violet')
-                ->icon('heroicon-o-cube'),
         ];
     }
 
     private function getAggregatedResults($query): array
     {
+        // Use more efficient query with index hints
         return $query
-            ->selectRaw('machine_type, SUM(total_clicks) as total_clicks')
+            ->select('machine_type')
+            ->selectRaw('SUM(total_clicks) as total_clicks')
             ->groupBy('machine_type')
             ->get()
             ->keyBy('machine_type')
