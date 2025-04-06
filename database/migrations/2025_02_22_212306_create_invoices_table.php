@@ -16,6 +16,8 @@ return new class extends Migration
             $table->string('invoice_number')->unique();  // Kolom nomor invoice
             $table->enum('status', ['paid', 'unpaid']);  // Status pembayaran
             $table->string('name_customer');  // Menambahkan kolom name_customer
+            $table->string('customer_email')->nullable();
+            $table->string('alamat_customer')->nullable();
             $table->string('customer_phone')->nullable();  // Menambahkan kolom customer_phone
             $table->text('notes')->nullable();  // Kolom catatan
             $table->decimal('dp', 10, 2)->nullable();  // Tambahkan kolom dp

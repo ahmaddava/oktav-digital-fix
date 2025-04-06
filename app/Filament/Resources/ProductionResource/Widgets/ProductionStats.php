@@ -6,137 +6,84 @@ use Filament\Widgets\StatsOverviewWidget;
 use Filament\Widgets\StatsOverviewWidget\Stat;
 use App\Models\Production;
 use Carbon\Carbon;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Livewire\Attributes\On;
 
 class ProductionStats extends StatsOverviewWidget
 {
-    // Mengurangi polling interval untuk responsivitas lebih baik
+    // Make stats refresh much more frequently
     protected function getPollingInterval(): ?string
     {
-        return '15s'; // 15 detik, lebih responsif dari 30s
+        return '5s'; // Poll every 5 seconds for faster updates
     }
 
-    // Add method to listen for refresh events
-    protected function setUp(): void
+    // Modern event handling using Livewire attributes
+    #[On('refresh-stats')]
+    public function handleRefreshEvent(): void
     {
-        parent::setUp();
-        
-        // Mendengarkan event refresh-stats dan menghapus semua cache terkait
-        $this->listen('refresh-stats', function () {
-            // Hapus semua cache yang terkait dengan statistik produksi
-            // Tambahkan logging untuk memastikan event diterima
-            Log::info('Refresh stats event received, clearing caches');
-            
-            // Hapus cache berdasarkan pola untuk membersihkan semua cache terkait
-            $this->clearProductionCaches();
-            
-            // Refresh widget
-            $this->refresh();
-        });
-    }
-
-    // Method untuk membersihkan semua cache terkait production stats
-    private function clearProductionCaches(): void
-    {
-        // Hapus cache counter totals
-        Cache::forget('production_counter_totals');
-        
-        // Hapus semua cache dengan awalan tertentu untuk current dan previous
-        $keys = Cache::get('production_cache_keys', []);
-        foreach ($keys as $key) {
-            Cache::forget($key);
-        }
-        
-        // Reset daftar key cache
-        Cache::put('production_cache_keys', [], 3600);
-        
-        Log::info('Production caches cleared');
+        Log::info('ProductionStats received refresh-stats event at ' . now()->format('H:i:s.u'));
+        $this->refresh();
     }
 
     protected function getStats(): array
     {
         try {
-            // Log awal proses getStats
-            Log::info('Getting production stats');
+            // Log the start of the process with timestamp
+            Log::info('Getting production stats at ' . now()->format('H:i:s.u'));
             
-            // Ambil filter atau gunakan bulan berjalan
+            // Get filters or use current month
             $from = $this->filters['from'] ?? null;
             $until = $this->filters['until'] ?? null;
 
-            // Tentukan periode bulan yang ditampilkan
+            // Determine displayed periods
             $currentPeriod = $this->getDatePeriod($from, $until);
             $previousPeriod = $this->getPreviousPeriod($currentPeriod['start']);
 
-            // Generate cache keys based on date periods
-            $currentCacheKey = 'production_stats_current_' . $currentPeriod['start']->format('Y-m-d') . '_' . $currentPeriod['end']->format('Y-m-d');
-            $previousCacheKey = 'production_stats_previous_' . $previousPeriod['start']->format('Y-m-d') . '_' . $previousPeriod['end']->format('Y-m-d');
+            // IMPORTANT: Get data directly without caching for immediate updates
+            Log::info('Querying database for current period stats');
+            $currentClickQuery = Production::whereBetween('created_at', [$currentPeriod['start'], $currentPeriod['end']]);
+            $currentClicks = $this->getAggregatedResults($currentClickQuery);
 
-            // Catat key cache untuk dapat dihapus nantinya
-            $cacheKeys = Cache::get('production_cache_keys', []);
-            if (!in_array($currentCacheKey, $cacheKeys)) {
-                $cacheKeys[] = $currentCacheKey;
-            }
-            if (!in_array($previousCacheKey, $cacheKeys)) {
-                $cacheKeys[] = $previousCacheKey;
-            }
-            if (!in_array('production_counter_totals', $cacheKeys)) {
-                $cacheKeys[] = 'production_counter_totals';
-            }
-            Cache::put('production_cache_keys', $cacheKeys, 3600);
+            Log::info('Querying database for previous period stats');
+            $previousClickQuery = Production::whereBetween('created_at', [$previousPeriod['start'], $previousPeriod['end']]);
+            $previousClicks = $this->getAggregatedResults($previousClickQuery);
 
-            // Dapatkan current clicks dengan caching yang lebih pendek (2 menit)
-            $currentClicks = Cache::remember($currentCacheKey, 120, function () use ($currentPeriod) {
-                Log::info('Cache miss for current period, querying database');
-                $currentClickQuery = Production::whereBetween('created_at', [$currentPeriod['start'], $currentPeriod['end']]);
-                return $this->getAggregatedResults($currentClickQuery);
-            });
-
-            // Dapatkan previous clicks dengan caching
-            $previousClicks = Cache::remember($previousCacheKey, 120, function () use ($previousPeriod) {
-                Log::info('Cache miss for previous period, querying database');
-                $previousClickQuery = Production::whereBetween('created_at', [$previousPeriod['start'], $previousPeriod['end']]);
-                return $this->getAggregatedResults($previousClickQuery);
-            });
-
-            // Konstanta untuk kode mesin (memastikan konsistensi dengan model)
+            // Constants for machine codes (ensuring consistency with model)
             $MESIN_1 = 'mesin_1';
             $MESIN_2 = 'mesin_2';
 
-            // Ambil total clicks per mesin
+            // Get clicks per machine
             $mesin1Current = $currentClicks[$MESIN_1]['total_clicks'] ?? 0;
             $mesin2Current = $currentClicks[$MESIN_2]['total_clicks'] ?? 0;
             $mesin1Previous = $previousClicks[$MESIN_1]['total_clicks'] ?? 0;
             $mesin2Previous = $previousClicks[$MESIN_2]['total_clicks'] ?? 0;
 
-            // Get counter values (with caching) - waktu cache lebih pendek (2 menit)
-            $counterResults = Cache::remember('production_counter_totals', 120, function () {
-                Log::info('Cache miss for counter totals, querying database');
-                
-                // Gunakan DB facade untuk query counter lebih efisien
-                // Dapatkan total counter dari produksi normal & penyesuaian
-                return DB::table('productions')
-                    ->select('machine_type')
-                    ->selectRaw('SUM(total_counter) as total_counter')
-                    ->groupBy('machine_type')
-                    ->get()
-                    ->keyBy('machine_type')
-                    ->mapWithKeys(fn ($item) => [
-                        $item->machine_type => $item->total_counter,
-                    ])
-                    ->toArray();
-            });
+            // Get counter values - important change: no caching for immediate update
+            Log::info('Getting counter totals directly from database');
+            $counterResults = DB::table('productions')
+                ->select('machine_type')
+                ->selectRaw('SUM(total_counter) as total_counter')
+                ->groupBy('machine_type')
+                ->get()
+                ->keyBy('machine_type')
+                ->mapWithKeys(fn ($item) => [
+                    $item->machine_type => $item->total_counter,
+                ])
+                ->toArray();
 
             $mesin1Counter = $counterResults[$MESIN_1] ?? 0;
             $mesin2Counter = $counterResults[$MESIN_2] ?? 0;
 
-            // Pre-compute descriptions for better performance
+            // Pre-compute descriptions
             $mesin1Description = $this->getTrendDescription($mesin1Current, $mesin1Previous);
             $mesin2Description = $this->getTrendDescription($mesin2Current, $mesin2Previous);
 
-            // Log hasil untuk debugging
-            Log::info("Stats calculated - M1: $mesin1Counter, M2: $mesin2Counter");
+            // Add timestamp to show when the data was refreshed
+            $timestamp = now()->format('H:i:s');
+            
+            // Log the results for debugging
+            Log::info("Stats calculated - M1: $mesin1Counter, M2: $mesin2Counter at $timestamp");
 
             return [
                 Stat::make('Clicks Mesin 1 - ' . $currentPeriod['label'], number_format($mesin1Current))
@@ -150,21 +97,21 @@ class ProductionStats extends StatsOverviewWidget
                     ->icon($this->getTrendIcon($mesin2Current, $mesin2Previous)),
 
                 Stat::make('Counter Mesin 1', number_format($mesin1Counter))
-                    ->description('Akumulasi semua counter mesin 1')
+                    ->description("Akumulasi counter mesin 1 · Updated: $timestamp")
                     ->color('warning')
                     ->icon('heroicon-m-cpu-chip'),
 
                 Stat::make('Counter Mesin 2', number_format($mesin2Counter))
-                    ->description('Akumulasi semua counter mesin 2')
+                    ->description("Akumulasi counter mesin 2 · Updated: $timestamp")
                     ->color('warning')
                     ->icon('heroicon-m-cpu-chip'),
             ];
         } catch (\Exception $e) {
-            // Log error untuk debugging
+            // Log error for debugging
             Log::error('Error in ProductionStats::getStats: ' . $e->getMessage());
             Log::error($e->getTraceAsString());
             
-            // Return empty stats jika terjadi error
+            // Return empty stats if error occurs
             return [
                 Stat::make('Error', 'Terjadi kesalahan saat memuat data')
                     ->color('danger')
