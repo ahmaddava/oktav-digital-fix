@@ -19,7 +19,7 @@ use Filament\Support\Enums\IconPosition;
 use Illuminate\Database\Eloquent\Builder;
 use Filament\Forms\Components\ToggleButtons;
 use Illuminate\Support\Facades\DB;
-use Closure;
+use Livewire\Attributes\On;
 use App\Filament\Resources\InvoiceResource\Pages;
 use Filament\Forms\Components\Grid;
 use Filament\Forms\Components\Wizard;
@@ -207,84 +207,114 @@ class InvoiceResource extends Resource implements HasShieldPermissions
                         ->icon('heroicon-o-shopping-cart')
                         ->schema([
                             Section::make('Product Details')
-                                ->schema([
-                                    Repeater::make('invoiceProducts')
-                                        ->label('')
-                                        ->columns(2)
-                                        ->grid(1)
-                                        ->defaultItems(1)
-                                        ->itemLabel(function (array $state): ?string {
-                                            if (!isset($state['product_id'])) return null;
-                                            
-                                            // Ambil dari variabel products yang sudah dikumpulkan
-                                            $product = self::$productOptions->firstWhere('id', $state['product_id']);
-                                            return $product ? $product->product_name : null;
-                                        })
-                                        ->afterStateUpdated(function ($get, $set) {
-                                            // Hindari rekursi dengan flag
-                                            static $calculating = false;
-                                            if ($calculating) return;
-                                            
-                                            $calculating = true;
-                                            $items = $get('invoiceProducts') ?: [];
-                                            $total = 0;
-                                            
-                                            foreach ($items as $item) {
-                                                $quantity = (int)($item['quantity'] ?? 0);
-                                                $price = (int)($item['price'] ?? 0);
-                                                $total += $quantity * $price;
-                                            }
-                                            
-                                            $set('grand_total', $total);
-                                            $calculating = false;
-                                        })
-                                        ->schema([
-                                            Grid::make(3)->schema([
-                                                Select::make('product_id')
-                                                    ->label('Product')
-                                                    ->options(self::$productOptions->pluck('product_name', 'id'))
-                                                    ->searchable()
-                                                    ->required()
-                                                    ->reactive()
-                                                    ->live(debounce: 300)
-                                                    ->afterStateUpdated(function ($state, $set) {
-                                                        if (!$state) return;
-                                                        
-                                                        // Get from static variable
-                                                        $product = self::$productOptions->firstWhere('id', $state);
-                                                        $price = $product ? $product->price : 0;
-                                                        
-                                                        $set('price', $price);
-                                                        $set('total_price', 0);
-                                                    })
-                                                    ->columnSpan(1),
-                    
-                                                TextInput::make('quantity')
-                                                    ->label('Quantity')
-                                                    ->numeric()
-                                                    ->default(1)
-                                                    ->required()
-                                                    ->minValue(1)
-                                                    ->live(debounce: 300)
-                                                    ->columnSpan(1)
-                                                    ->afterStateUpdated(function ($state, $set, $get) {
-                                                        $price = (int)$get('price');
-                                                        $totalPrice = (int)$state * $price;
-                                                        $set('total_price', $totalPrice);
-                                                    }),
-                    
-                                                TextInput::make('price')
-                                                    ->label('Harga')
-                                                    ->disabled()
-                                                    ->prefix('Rp ')
-                                                    ->dehydrated()
-                                                    ->formatStateUsing(fn ($state) => number_format($state, 0, ',', '.'))
-                                                    ->reactive()
-                                                    ->columnSpan(1),
-                                            ]),
-                                        ])
-                                ])
-                                ->compact()
+                            ->schema([
+                                Repeater::make('invoiceProducts')
+                                    ->label('')
+                                    ->columns(2)
+                                    ->grid(1)
+                                    ->defaultItems(1)
+                                    ->itemLabel(function (array $state): ?string {
+                                        if (!isset($state['product_id'])) return null;
+                                        
+                                        // Ambil dari variabel products yang sudah dikumpulkan
+                                        $product = self::$productOptions->firstWhere('id', $state['product_id']);
+                                        return $product ? $product->product_name : null;
+                                    })
+                                    ->afterStateUpdated(function ($get, $set) {
+                                        // Hindari rekursi dengan flag
+                                        static $calculating = false;
+                                        if ($calculating) return;
+                                        
+                                        $calculating = true;
+                                        $items = $get('invoiceProducts') ?: [];
+                                        $total = 0;
+                                        
+                                        foreach ($items as $item) {
+                                            $quantity = (int)($item['quantity'] ?? 0);
+                                            $price = (int)($item['price'] ?? 0);
+                                            $total += $quantity * $price;
+                                        }
+                                        
+                                        $set('grand_total', $total);
+                                        $calculating = false;
+                                    })
+                                    ->schema([
+                                        Grid::make(3)->schema([
+                                            Select::make('product_id')
+                                                ->label('Product')
+                                                ->options(function (callable $get, ?string $state, ?string $context) {
+                                                    // Get all selected product IDs from other repeater items
+                                                    $allItems = $get('../../invoiceProducts') ?: [];
+                                                    $selectedProductIds = [];
+                                                    
+                                                    // Get the uuid of the current repeater item from context
+                                                    $currentItemKey = $context;
+                                                    
+                                                    // Collect all selected product IDs except the current one
+                                                    foreach ($allItems as $itemKey => $item) {
+                                                        if ($itemKey !== $currentItemKey && isset($item['product_id']) && $item['product_id']) {
+                                                            $selectedProductIds[] = $item['product_id'];
+                                                        }
+                                                    }
+                                                    
+                                                    // Filter out already selected products
+                                                    $availableProducts = self::$productOptions
+                                                        ->whereNotIn('id', $selectedProductIds)
+                                                        ->pluck('product_name', 'id')
+                                                        ->toArray();
+                                                    
+                                                    // If this item already has a selection, ensure it's included
+                                                    if ($state && !in_array($state, $selectedProductIds)) {
+                                                        $currentProduct = self::$productOptions->firstWhere('id', $state);
+                                                        if ($currentProduct) {
+                                                            $availableProducts[$state] = $currentProduct->product_name;
+                                                        }
+                                                    }
+                                                    
+                                                    return $availableProducts;
+                                                })
+                                                ->searchable()
+                                                ->required()
+                                                ->reactive()
+                                                ->live(debounce: 300)
+                                                ->afterStateUpdated(function ($state, $set) {
+                                                    if (!$state) return;
+                                                    
+                                                    // Get from static variable
+                                                    $product = self::$productOptions->firstWhere('id', $state);
+                                                    $price = $product ? $product->price : 0;
+                                                    
+                                                    $set('price', $price);
+                                                    $set('total_price', 0);
+                                                })
+                                                ->columnSpan(1),
+
+                                            TextInput::make('quantity')
+                                                ->label('Quantity')
+                                                ->numeric()
+                                                ->default(1)
+                                                ->required()
+                                                ->minValue(1)
+                                                ->live(debounce: 300)
+                                                ->columnSpan(1)
+                                                ->afterStateUpdated(function ($state, $set, $get) {
+                                                    $price = (int)$get('price');
+                                                    $totalPrice = (int)$state * $price;
+                                                    $set('total_price', $totalPrice);
+                                                }),
+
+                                            TextInput::make('price')
+                                                ->label('Harga')
+                                                ->disabled()
+                                                ->prefix('Rp ')
+                                                ->dehydrated()
+                                                ->formatStateUsing(fn ($state) => number_format($state, 0, ',', '.'))
+                                                ->reactive()
+                                                ->columnSpan(1),
+                                        ]),
+                                    ])
+                            ])
+                            ->compact()
                         ])
                         ->columns(1), 
                          // Wizard 3: Payment

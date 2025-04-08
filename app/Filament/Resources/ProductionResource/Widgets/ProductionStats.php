@@ -78,12 +78,9 @@ class ProductionStats extends StatsOverviewWidget
             // Pre-compute descriptions
             $mesin1Description = $this->getTrendDescription($mesin1Current, $mesin1Previous);
             $mesin2Description = $this->getTrendDescription($mesin2Current, $mesin2Previous);
-
-            // Add timestamp to show when the data was refreshed
-            $timestamp = now()->format('H:i:s');
             
             // Log the results for debugging
-            Log::info("Stats calculated - M1: $mesin1Counter, M2: $mesin2Counter at $timestamp");
+            Log::info("Stats calculated - M1: $mesin1Counter, M2: $mesin2Counter");
 
             return [
                 Stat::make('Clicks Mesin 1 - ' . $currentPeriod['label'], number_format($mesin1Current))
@@ -97,12 +94,12 @@ class ProductionStats extends StatsOverviewWidget
                     ->icon($this->getTrendIcon($mesin2Current, $mesin2Previous)),
 
                 Stat::make('Counter Mesin 1', number_format($mesin1Counter))
-                    ->description("Akumulasi counter mesin 1 · Updated: $timestamp")
+                    ->description("Akumulasi semua counter mesin 1")
                     ->color('warning')
                     ->icon('heroicon-m-cpu-chip'),
 
                 Stat::make('Counter Mesin 2', number_format($mesin2Counter))
-                    ->description("Akumulasi counter mesin 2 · Updated: $timestamp")
+                    ->description("Akumulasi semua counter mesin 2")
                     ->color('warning')
                     ->icon('heroicon-m-cpu-chip'),
             ];
