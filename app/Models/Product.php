@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use App\Models\ProductPrice;
 
 class Product extends Model
 {
@@ -62,4 +63,22 @@ class Product extends Model
     protected $casts = [
         'price' => 'integer',
     ];
+
+    // Relasi ke ProductPrice
+    public function prices()
+    {
+        return $this->hasMany(ProductPrice::class);
+    }
+
+    // Define the method to get price based on quantity
+    public function getPriceByQuantity($quantity)
+    {
+        // Fetch the price rule based on quantity
+        $priceRule = $this->prices()->where('min_quantity', '<=', $quantity)
+                                     ->orderByDesc('min_quantity') // Select the highest min_quantity that is <= quantity
+                                     ->first();
+
+        // Return the price if a rule is found, otherwise return the default price
+        return $priceRule ? $priceRule->price : $this->price;
+    }
 }

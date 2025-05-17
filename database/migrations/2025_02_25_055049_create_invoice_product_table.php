@@ -11,10 +11,12 @@ return new class extends Migration
     {
         Schema::create('invoice_product', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('invoice_id')->constrained()->onDelete('cascade');
-            $table->foreignId('product_id')->constrained()->onDelete('cascade');
+            $table->foreignId('invoice_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('product_id')->constrained()->cascadeOnDelete();
             $table->integer('quantity');
-            $table->decimal('price', 10, 2)->nullable();
+            $table->integer('price');  // Harga per item (sudah sesuai quantity)
+            $table->integer('total_price'); // Total harga (price * quantity)
+            $table->integer('sort')->nullable();
             $table->timestamps();
         });
     }

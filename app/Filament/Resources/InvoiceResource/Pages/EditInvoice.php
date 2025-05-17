@@ -2,7 +2,6 @@
 
 namespace App\Filament\Resources\InvoiceResource\Pages;
 
-use App\Models\InvoiceProduct;
 use App\Models\Product;
 use Filament\Actions;
 use Filament\Forms\Components\Grid;
@@ -17,6 +16,7 @@ use Filament\Resources\Pages\EditRecord;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use App\Filament\Resources\InvoiceResource;
+use Filament\Notifications\Notification;
 
 class EditInvoice extends EditRecord
 {
@@ -46,6 +46,27 @@ class EditInvoice extends EditRecord
                                         'paid' => 'success',
                                         'unpaid' => 'danger',
                                     ])
+                                    ->icons([
+                                        'paid' => 'heroicon-s-check-circle',
+                                        'unpaid' => 'heroicon-s-exclamation-circle',
+                                    ])
+                                    ->inline()
+                                    ->required(),
+                                    
+                                ToggleButtons::make('payment_method')
+                                    ->label('Payment Method')
+                                    ->options([
+                                        'transfer' => 'Transfer',
+                                        'cash' => 'Cash',
+                                    ])
+                                    ->colors([
+                                        'transfer' => 'info',
+                                        'cash' => 'warning',
+                                    ])
+                                    ->icons([
+                                        'transfer' => 'heroicon-s-credit-card',
+                                        'cash' => 'heroicon-s-currency-dollar',
+                                    ])
                                     ->inline()
                                     ->required(),
                             ]),
@@ -58,18 +79,38 @@ class EditInvoice extends EditRecord
                                     
                                 TextInput::make('customer_phone')
                                     ->label('Phone Number')
-                                    // ->tel()
                                     ->prefix('+62')
                                     ->required()
-                                    ->mask('9999-9999-9999')
-                                    // ->rule('regex:/^(\+62|62|0)8[1-9][0-9]{6,9}$/'),
+                                    ->mask('9999-9999-9999'),
+                                    
+                                TextInput::make('customer_email')
+                                    ->label('Email')
+                                    ->email()
+                                    ->nullable(),
+                                    
+                                TextInput::make('alamat_customer')
+                                    ->label('Address')
+                                    ->nullable(),
                             ]),
+                            
+                        TextInput::make('grand_total')
+                            ->label('Total Amount')
+                            ->disabled()
+                            ->dehydrated()
+                            ->prefix('Rp ')
+                            ->formatStateUsing(fn ($state) => number_format((float) $state, 0, ',', '.'))
+                            ->columnSpanFull(),
+                            
+                        Textarea::make('notes')
+                            ->label('Notes')
+                            ->nullable()
+                            ->columnSpanFull(),
                     ]),
                     
                     Section::make('Product Details')
                     ->schema([
                         Repeater::make('invoiceProducts')
-                            ->relationship() // Gunakan relationship langsung ke pivot
+                            ->relationship()
                             ->schema([
                                 Select::make('product_id')
                                     ->label('Product')
@@ -77,21 +118,65 @@ class EditInvoice extends EditRecord
                                     ->searchable()
                                     ->required()
                                     ->reactive()
+                                    ->afterStateUpdated(function ($state, $set, $get) {
+                                        if (!$state) return;
+                                        
+                                        $product = Product::find($state);
+                                        if (!$product) return;
+                                        
+                                        $quantity = (int) $get('quantity');
+                                        if ($quantity > 0) {
+                                            $price = $product->getPriceByQuantity($quantity);
+                                            $set('price', $price);
+                                            $set('total_price', $price * $quantity);
+                                        }
+                                    })
                                     ->disableOptionsWhenSelectedInSiblingRepeaterItems(),
                                     
-                                TextInput::make('quantity') // Akses langsung field quantity
+                                TextInput::make('quantity')
                                     ->label('Quantity')
                                     ->numeric()
                                     ->default(1)
                                     ->required()
                                     ->minValue(1)
+                                    ->reactive()
+                                    ->afterStateUpdated(function ($state, $set, $get) {
+                                        $quantity = (int) $state;
+                                        $productId = $get('product_id');
+                                        
+                                        if (!$productId || $quantity <= 0) return;
+                                        
+                                        $product = Product::find($productId);
+                                        if (!$product) return;
+                                        
+                                        $price = $product->getPriceByQuantity($quantity);
+                                        $set('price', $price);
+                                        $set('total_price', $price * $quantity);
+                                    }),
+                                    
+                                TextInput::make('price')
+                                    ->label('Unit Price')
+                                    ->numeric()
+                                    ->disabled()
+                                    ->dehydrated()
+                                    ->prefix('Rp ')
+                                    ->formatStateUsing(fn ($state) => number_format((int) $state, 0, ',', '.')),
+                                    
+                                TextInput::make('total_price')
+                                    ->label('Total Price')
+                                    ->numeric()
+                                    ->disabled()
+                                    ->dehydrated()
+                                    ->prefix('Rp ')
+                                    ->formatStateUsing(fn ($state) => number_format((int) $state, 0, ',', '.')),
                             ])
-                            ->columns(2)
+                            ->columns(4)
                             ->itemLabel(fn (array $state): ?string => 
                                 Product::find($state['product_id'])?->product_name . 
                                 ' (Qty: ' . ($state['quantity'] ?? 1) . ')'
                             )
                             ->reorderable(true)
+                            ->defaultItems(1)
                             ->rules([
                                 'array',
                                 'min:1' // Minimal 1 produk
@@ -99,88 +184,95 @@ class EditInvoice extends EditRecord
                             ->deleteAction(
                                 fn ($action) => $action->requiresConfirmation()
                             )
-                            ->mutateRelationshipDataBeforeCreateUsing(
-                                fn (array $data): array => [
-                                    'product_id' => $data['product_id'],
-                                    'quantity' => $data['quantity']
-                                ]
-                                )
                             ->addActionLabel('Add Product')
                     ])
             ]);
     }
 
-    protected function handleRecordUpdate(Model $record, array $data): Model
+    // Override method mutateFormDataBeforeSave
+    protected function mutateFormDataBeforeSave(array $data): array
     {
-        DB::transaction(function () use ($record, $data) {
-            try {
-                // Update data utama
-                $record->update([
-                    'invoice_number' => $data['invoice_number'],
-                    'status' => $data['status'] ?? 'unpaid',
-                    'name_customer' => $data['name_customer'] ?? '',
-                    'customer_phone' => $data['customer_phone'] ?? '',
-                    'notes' => $data['notes'] ?? null
-                ]);
-
-                // Handle products
-                if (isset($data['invoiceProducts']) && is_array($data['invoiceProducts'])) {
-                    // Validasi data sebelum proses
-                    $validProducts = [];
-                    foreach ($data['invoiceProducts'] as $product) {
-                        if (!empty($product['product_id']) && !empty($product['quantity'])) {
-                            $validProducts[] = [
-                                'product_id' => $product['product_id'],
-                                'quantity' => $product['quantity']
-                            ];
-                        }
-                    }
-
-                    // Hapus produk lama hanya jika ada produk baru yang valid
-                    if (!empty($validProducts)) {
-                        $record->invoiceProducts()->delete();
-                        
-                        // Insert produk baru
-                        foreach ($validProducts as $product) {
-                            $record->invoiceProducts()->create($product);
-                        }
-                    }
-                }
-            } catch (\Exception $e) {
-                throw new \Exception('Gagal menyimpan invoice: ' . $e->getMessage());
-            }
-        });
-        
-        return $record;
+        // Tidak perlu menghitung grand_total di sini karena akan dihitung di afterSave
+        return $data;
     }
 
-protected function fillForm(): void
-{
-    $this->form->fill([
-        ...$this->record->toArray(),
-        'invoiceProducts' => $this->record->invoiceProducts->map(function ($item) {
-            return [
-                'product_id' => $item->product_id,
-                'quantity' => $item->quantity
-            ];
-        })->toArray()
-    ]);
-}
-protected function getHeaderActions(): array
-{
-    return [
-        \Filament\Actions\Action::make('print')
-            ->label('Print Invoice')
-            ->icon('heroicon-o-printer')
-            ->url(fn () => route('invoices.print', $this->record))
-            ->openUrlInNewTab(),
+    // Override method untuk menangani update
+    protected function afterSave(): void
+    {
+        // Sync produk dengan perhitungan harga
+        $productsSync = [];
+        
+        foreach ($this->data['invoiceProducts'] as $item) {
+            if (isset($item['product_id']) && isset($item['quantity'])) {
+                $product = Product::find($item['product_id']);
+                if ($product) {
+                    $quantity = (int) $item['quantity'];
+                    $price = $product->getPriceByQuantity($quantity);
+                    $totalPrice = $price * $quantity;
+                    
+                    $productsSync[$item['product_id']] = [
+                        'quantity' => $quantity,
+                        'price' => $price,
+                        'total_price' => $totalPrice
+                    ];
+                }
+            }
+        }
+        
+        DB::transaction(function () use ($productsSync) {
+            // Sync produk dengan price dan total_price
+            $this->record->products()->sync($productsSync);
             
-        Actions\DeleteAction::make()->requiresConfirmation(),
-    ];
-}
+            // Update grand_total di invoice
+            $grandTotal = array_sum(array_column($productsSync, 'total_price'));
+            $this->record->update(['grand_total' => $grandTotal]);
+        });
+        
+        // Tampilkan notifikasi berhasil
+        Notification::make()
+            ->title('Invoice updated successfully')
+            ->icon('heroicon-o-document-text')
+            ->iconColor('success')
+            ->send();
+    }
+
+    protected function fillForm(): void
+    {
+        $this->form->fill([
+            ...$this->record->toArray(),
+            'invoiceProducts' => $this->record->invoiceProducts->map(function ($item) {
+                return [
+                    'id' => $item->id,
+                    'product_id' => $item->product_id,
+                    'quantity' => $item->quantity,
+                    'price' => $item->price,
+                    'total_price' => $item->total_price
+                ];
+            })->toArray()
+        ]);
+    }
+    
+    protected function getHeaderActions(): array
+    {
+        return [
+            Actions\Action::make('print')
+                ->label('Print Invoice')
+                ->icon('heroicon-o-printer')
+                ->url(fn () => route('invoices.print', $this->record))
+                ->openUrlInNewTab(),
+                
+            Actions\DeleteAction::make()->requiresConfirmation(),
+        ];
+    }
 
     protected function getRedirectUrl(): string
     {
         return $this->getResource()::getUrl('index');
+    }
+    
+    // Nonaktifkan notifikasi bawaan
+    protected function getSavedNotification(): ?Notification
+    {
+        return null; // Nonaktifkan notifikasi bawaan "Saved"
     }
 }

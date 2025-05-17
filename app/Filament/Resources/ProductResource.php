@@ -16,6 +16,7 @@ use Filament\Forms\Set;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Enums\FiltersLayout;
 use BezhanSalleh\FilamentShield\Contracts\HasShieldPermissions;
+use Filament\Forms\Components\Repeater;
 
 class ProductResource extends Resource implements HasShieldPermissions
 {
@@ -37,6 +38,7 @@ class ProductResource extends Resource implements HasShieldPermissions
     {
         return $form
             ->schema([
+                // Input untuk tipe produk
                 Select::make('type')
                     ->label('Tipe Produk')
                     ->options([
@@ -51,23 +53,28 @@ class ProductResource extends Resource implements HasShieldPermissions
                             $set('stock', 0);
                         }
                     }),
-                
+    
+                // Input untuk nama produk
                 TextInput::make('product_name')
                     ->label('Nama Produk/Jasa')
                     ->required()
                     ->maxLength(255),
-                
+    
+                // Input untuk harga produk dasar
                 TextInput::make('price')
                     ->required()
                     ->numeric()
                     ->prefix('Rp'),
-                
+    
+                // Input untuk stock (hanya untuk produk digital print)
                 TextInput::make('stock')
                     ->numeric()
                     ->required(fn (Get $get): bool => $get('type') === 'digital_print')
                     ->default(0)
                     ->visible(fn (Get $get): bool => $get('type') === 'digital_print')
                     ->hidden(fn (Get $get): bool => $get('type') === 'jasa'),
+    
+                // Input untuk click (juga hanya untuk produk digital print)
                 TextInput::make('click')
                     ->label('Click')
                     ->numeric()
@@ -75,7 +82,30 @@ class ProductResource extends Resource implements HasShieldPermissions
                     ->default(0)
                     ->visible(fn (Get $get): bool => $get('type') === 'digital_print')
                     ->hidden(fn (Get $get): bool => $get('type') === 'jasa'),
-            ]); // SKU dihapus dari form karena auto-generate
+                
+                // Repeater untuk menambahkan beberapa set harga berdasarkan quantity
+                Repeater::make('prices')
+                    ->relationship('prices')
+                    ->label('Harga Berdasarkan Quantity')
+                    ->schema([
+                        // Input untuk minimum quantity
+                        TextInput::make('min_quantity')
+                            ->label('Minimum Quantity')
+                            ->numeric()
+                            ->required()
+                            ->minValue(1)
+                            ->placeholder('Contoh: 100, 300, 500, 700, 1000'),
+    
+                        // Input untuk harga berdasarkan quantity tersebut
+                        TextInput::make('price')
+                            ->label('Harga')
+                            ->numeric()
+                            ->required()
+                            ->prefix('Rp')
+                            ->placeholder('Harga untuk quantity tersebut'),
+                    ])
+                    ->columnSpanFull(2),
+            ]);
     }
 
     public static function table(Table $table): Table
@@ -150,4 +180,5 @@ class ProductResource extends Resource implements HasShieldPermissions
             'edit' => Pages\EditProduct::route('/{record}/edit'),
         ];
     }
+    
 }

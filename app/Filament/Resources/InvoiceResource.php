@@ -25,14 +25,27 @@ use Filament\Forms\Components\Grid;
 use Filament\Forms\Components\Wizard;
 use App\Models\Customer;
 use Filament\Tables\Filters\SelectFilter;
-use Filament\Actions;
+use Filament\Forms\Components\Actions\Action as FormAction;
+use Filament\Forms\Components\Actions;
+use Filament\Forms\Get;
+use Filament\Forms\Set;
 use BezhanSalleh\FilamentShield\Contracts\HasShieldPermissions;
 
 class InvoiceResource extends Resource implements HasShieldPermissions
 {
     // Variable untuk menyimpan data customer dan produk
     protected static $customerOptions = null;
+
     protected static $productOptions = null;
+
+    protected static function bootHasTable(): void
+    {
+        parent::bootHasTable();
+        
+        if (self::$productOptions === null) {
+            self::$productOptions = Product::with('prices')->get();
+        }
+    }
     
     protected static ?string $model = Invoice::class;
 
@@ -47,6 +60,10 @@ class InvoiceResource extends Resource implements HasShieldPermissions
 
     public static function form(Form $form): Form
     {
+        if (self::$productOptions === null) {
+            self::$productOptions = Product::with('prices')->get();
+        }
+
         // Ambil opsi customer sekali saja
         if (self::$customerOptions === null) {
             self::$customerOptions = Customer::select('nama_customer', 'nomor_customer')
@@ -209,6 +226,7 @@ class InvoiceResource extends Resource implements HasShieldPermissions
                             Section::make('Product Details')
                             ->schema([
                                 Repeater::make('invoiceProducts')
+                                    ->relationship()
                                     ->label('')
                                     ->columns(2)
                                     ->grid(1)
@@ -239,7 +257,7 @@ class InvoiceResource extends Resource implements HasShieldPermissions
                                         $calculating = false;
                                     })
                                     ->schema([
-                                        Grid::make(3)->schema([
+                                        Grid::make(4)->schema([
                                             Select::make('product_id')
                                                 ->label('Product')
                                                 ->options(function (callable $get, ?string $state, ?string $context) {
@@ -273,46 +291,88 @@ class InvoiceResource extends Resource implements HasShieldPermissions
                                                     
                                                     return $availableProducts;
                                                 })
-                                                ->searchable()
-                                                ->required()
-                                                ->reactive()
-                                                ->live(debounce: 300)
-                                                ->afterStateUpdated(function ($state, $set) {
-                                                    if (!$state) return;
-                                                    
-                                                    // Get from static variable
-                                                    $product = self::$productOptions->firstWhere('id', $state);
-                                                    $price = $product ? $product->price : 0;
-                                                    
-                                                    $set('price', $price);
-                                                    $set('total_price', 0);
-                                                })
-                                                ->columnSpan(1),
+                                                    ->searchable()
+                                                    ->required()
+                                                    ->reactive()
+                                                    ->live(debounce: 300)
+                                                    ->afterStateUpdated(function ($state, $set, $get) {
+                                                        if (!$state) return;
+                                                        
+                                                        // Get from cached product options
+                                                        $product = self::$productOptions->firstWhere('id', $state);
+                                                        
+                                                        if (!$product) return;
+                                                        
+                                                        // Set base price first
+                                                        $price = $product->price;
+                                                        $set('price', $price);
+                                                        
+                                                        // If quantity already exists, calculate based on that quantity
+                                                        $quantity = (int) $get('quantity');
+                                                        if ($quantity > 0) {
+                                                            $priceByQuantity = $product->getPriceByQuantity($quantity);
+                                                            $set('price', $priceByQuantity);
+                                                            $set('total_price', $priceByQuantity * $quantity);
+                                                        } else {
+                                                            $set('total_price', 0);
+                                                        }
+                                                    })
+                                                    ->columnSpan(1),
 
                                             TextInput::make('quantity')
                                                 ->label('Quantity')
                                                 ->numeric()
-                                                ->default(1)
                                                 ->required()
-                                                ->minValue(1)
                                                 ->live(debounce: 300)
-                                                ->columnSpan(1)
                                                 ->afterStateUpdated(function ($state, $set, $get) {
-                                                    $price = (int)$get('price');
-                                                    $totalPrice = (int)$state * $price;
-                                                    $set('total_price', $totalPrice);
-                                                }),
+                                                    $quantity = (int) $state;
+                                                    $productId = $get('product_id');
+                                                    
+                                                    if (!$productId || $quantity <= 0) {
+                                                        $set('total_price', 0);
+                                                        return;
+                                                    }
+                                                    
+                                                    // Use cached products for better performance
+                                                    $product = self::$productOptions->firstWhere('id', $productId);
+                                                    
+                                                    if (!$product) {
+                                                        // Fallback to database query if not found in cache
+                                                        $product = Product::with('prices')->find($productId);
+                                                        
+                                                        if (!$product) {
+                                                            $set('total_price', 0);
+                                                            return;
+                                                        }
+                                                    }
+                                                    
+                                                    // Use the getPriceByQuantity method from your model
+                                                    $price = $product->getPriceByQuantity($quantity);
+                                                    
+                                                    // Set updated price and calculate total
+                                                    $set('price', $price);
+                                                    $set('total_price', $quantity * $price);
+                                                })
+                                                ->columnSpan(1),
 
                                             TextInput::make('price')
                                                 ->label('Harga')
                                                 ->disabled()
                                                 ->prefix('Rp ')
-                                                ->dehydrated()
+                                                ->dehydrated(true)
+                                                ->formatStateUsing(fn ($state) => number_format($state, 0, ',', '.'))
+                                                ->reactive()
+                                                ->columnSpan(1),
+                                            TextInput::make('total_price')
+                                                ->label('Total')
+                                                ->disabled()
+                                                ->prefix('Rp ')
+                                                ->dehydrated(true)
                                                 ->formatStateUsing(fn ($state) => number_format($state, 0, ',', '.'))
                                                 ->reactive()
                                                 ->columnSpan(1),
                                         ]),
-                                    ])
+                                    ])      
                             ])
                             ->compact()
                         ])
@@ -322,16 +382,37 @@ class InvoiceResource extends Resource implements HasShieldPermissions
                             ->icon('heroicon-o-currency-dollar')
                             ->schema([
                                 Section::make('Payment Details')
-                                    ->schema([
-                                        // Total Harga
-                                        TextInput::make('grand_total')
+                                ->schema([
+                                    // Tombol untuk menghitung ulang total jika dibutuhkan
+                                    \Filament\Forms\Components\Actions::make([
+                                        FormAction::make('calculateGrandTotal')
+                                            ->label('Hitung Ulang Total')
+                                            ->icon('heroicon-o-calculator')
+                                            ->button()
+                                            ->color('primary')
+                                            ->action(function (Get $get, Set $set) {
+                                                $invoiceProducts = $get('invoiceProducts') ?? [];
+                                                $grandTotal = 0;
+                                                
+                                                foreach ($invoiceProducts as $item) {
+                                                    if (isset($item['total_price'])) {
+                                                        $grandTotal += (int) $item['total_price'];
+                                                    }
+                                                }
+                                                
+                                                $set('grand_total', $grandTotal);
+                                            }),
+                                    ])->columnSpanFull(),
+                                    
+                                    // Total Harga
+                                    TextInput::make('grand_total')
                                         ->label('Total Harga')
                                         ->disabled()
                                         ->prefix('Rp ')
                                         ->formatStateUsing(function ($state) {
                                             return number_format((float)$state, 0, ',', '.');
                                         })
-                                        ->dehydrated()
+                                        ->dehydrated() // Pastikan nilai disimpan ke database
                                         ->columnSpan(1)
                                         ->required()
                                         ->numeric()
@@ -536,5 +617,39 @@ class InvoiceResource extends Resource implements HasShieldPermissions
     public static function getNavigationSort(): ?int
     {
         return 3;
+    }
+
+    protected function mutateFormDataBeforeCreate(array $data): array
+    {
+        // Pastikan grand_total terhitung sebelum menyimpan data
+        $invoiceProducts = $data['invoiceProducts'] ?? [];
+        $grandTotal = 0;
+        
+        foreach ($invoiceProducts as $item) {
+            if (isset($item['total_price'])) {
+                $grandTotal += (int) $item['total_price'];
+            }
+        }
+        
+        $data['grand_total'] = $grandTotal;
+        
+        return $data;
+    }
+
+    protected function mutateFormDataBeforeSave(array $data): array
+    {
+        // Pastikan grand_total terhitung sebelum update data
+        $invoiceProducts = $data['invoiceProducts'] ?? [];
+        $grandTotal = 0;
+        
+        foreach ($invoiceProducts as $item) {
+            if (isset($item['total_price'])) {
+                $grandTotal += (int) $item['total_price'];
+            }
+        }
+        
+        $data['grand_total'] = $grandTotal;
+        
+        return $data;
     }
 }

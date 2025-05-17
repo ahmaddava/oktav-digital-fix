@@ -156,4 +156,20 @@ class Invoice extends Model
             default => 'gray',
         };
     }
+
+    public function getCalculatedGrandTotalAttribute()
+    {
+        return $this->products()->sum('total_price');
+    }
+
+    // Boot method untuk menghitung grand_total sebelum disimpan
+    protected static function booted()
+    {
+        static::saving(function ($invoice) {
+            // Jika invoice sudah ada (update), hitung ulang grand_total
+            if ($invoice->exists) {
+                $invoice->grand_total = $invoice->products()->sum('total_price');
+            }
+        });
+    }
 }

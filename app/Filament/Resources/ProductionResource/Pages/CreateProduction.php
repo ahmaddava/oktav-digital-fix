@@ -27,11 +27,7 @@ class CreateProduction extends CreateRecord
     protected function handleRecordCreation(array $data): Model
     {
         // Create the production record
-        $record = static::getModel()::create($data);
-        
-        // The stock reduction for normal products happens in afterCreate
-        // Failed prints stock reduction happens in the model's boot method
-        
+        $record = static::getModel()::create($data);        
         return $record;
     }
 
@@ -44,8 +40,6 @@ class CreateProduction extends CreateRecord
         if ($invoice && $invoice->exists) {
             foreach ($invoice->products as $product) {
                 if ($product->type === Product::TYPE_DIGITAL_PRINT) {
-                    // We only reduce stock for the actual prints, not failed ones
-                    // Failed prints are handled separately in the Production model
                     $product->stock -= $product->pivot->quantity;
                     $product->save();
                 }
@@ -78,6 +72,4 @@ class CreateProduction extends CreateRecord
             ->color('primary');
     }
 
-    // Remove the getBreadcrumbs method completely - let Filament handle breadcrumbs
-    // This method was causing issues with the array structure
 }
