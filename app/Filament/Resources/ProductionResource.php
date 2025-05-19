@@ -17,6 +17,7 @@ use Filament\Notifications\Notification;
 class ProductionResource extends Resource
 {
     protected static ?string $model = Production::class;
+    protected static ?string $navigationGroup = 'Produksi';
     protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
 
     public static function form(Form $form): Form

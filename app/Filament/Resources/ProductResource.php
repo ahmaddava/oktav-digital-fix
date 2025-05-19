@@ -20,7 +20,7 @@ use Filament\Forms\Components\Repeater;
 
 class ProductResource extends Resource implements HasShieldPermissions
 {
-    // ...
+    protected static ?string $navigationGroup = 'Management';
 
     public static function getPermissionPrefixes(): array
     {

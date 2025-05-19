@@ -36,6 +36,8 @@ class InvoiceResource extends Resource implements HasShieldPermissions
     // Variable untuk menyimpan data customer dan produk
     protected static $customerOptions = null;
 
+    protected static ?string $navigationGroup = 'Management';
+
     protected static $productOptions = null;
 
     protected static function bootHasTable(): void
