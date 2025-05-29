@@ -107,8 +107,8 @@ class ViewPayment extends ViewRecord
                                 ->visible(fn ($record) => $record->status === 'unpaid' && $record->dp > 0),
                         ]),
                         
-                        TextEntry::make('payment_notes')
-                            ->label('Payment Notes')
+                        TextEntry::make('approval_notes')
+                            ->label('Approval Notes')
                             ->placeholder('No payment notes')
                             ->columnSpanFull(),
                     ])

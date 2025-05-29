@@ -516,16 +516,16 @@ class InvoiceResource extends Resource implements HasShieldPermissions
             ->actions([
                 Tables\Actions\EditAction::make(),
                 Tables\Actions\DeleteAction::make(),
-                \Filament\Tables\Actions\Action::make('manage_payment')
-                    ->label('Manage Payment')
-                    ->icon('heroicon-o-credit-card')
-                    ->url(fn ($record) => PaymentResource::getUrl('edit', ['record' => $record]))
-                    ->color('success'),
-                \Filament\Tables\Actions\Action::make('print')
-                    ->label('Print Invoice')
-                    ->icon('heroicon-o-printer')
-                    ->url(fn ($record) => route('invoices.print', $record))
-                    ->openUrlInNewTab()
+                // \Filament\Tables\Actions\Action::make('manage_payment')
+                //     ->label('Manage Payment')
+                //     ->icon('heroicon-o-credit-card')
+                //     ->url(fn ($record) => PaymentResource::getUrl('edit', ['record' => $record]))
+                //     ->color('success'),
+                // \Filament\Tables\Actions\Action::make('print')
+                //     ->label('Print Invoice')
+                //     ->icon('heroicon-o-printer')
+                //     ->url(fn ($record) => route('invoices.print', $record))
+                //     ->openUrlInNewTab()
             ])
             ->bulkActions([
                 Tables\Actions\DeleteBulkAction::make(),

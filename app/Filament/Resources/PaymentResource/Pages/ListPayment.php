@@ -14,17 +14,31 @@ use App\Filament\Resources\InvoiceResource;
 class ListPayments extends ListRecords
 {
     protected static string $resource = PaymentResource::class;
+    protected static ?string $pollingInterval = '60s';
+    protected static ?string $navigationIcon = 'heroicon-o-currency-dollar';
 
-    protected function getHeaderActions(): array
+    // 1. TEMPATKAN WIDGET DI METHOD YANG BENAR
+    protected function getHeaderWidgets(): array
     {
         return [
-            Actions\Action::make('create_invoice')
-                ->label('Create New Invoice')
-                ->icon('heroicon-o-plus')
-                ->url(InvoiceResource::getUrl('create'))
-                ->color('primary'),
+            \App\Filament\Resources\PaymentResource\Widgets\PaymentWidgets::class,
         ];
     }
+
+    // 2. HEADER ACTIONS HANYA UNTUK ACTION
+    // protected function getHeaderActions(): array
+    // {
+    //     return [
+    //         Actions\CreateAction::make()
+    //             ->label('Buat Pembayaran Baru')
+    //             ->icon('heroicon-o-plus'),
+    //         Actions\Action::make('create_invoice')
+    //             ->label('Buat Invoice Baru')
+    //             ->icon('heroicon-o-document-plus')
+    //             ->url(InvoiceResource::getUrl('create'))
+    //             ->color('primary'),
+    //     ];
+    // }
 
     public function getTabs(): array
     {
@@ -45,6 +59,16 @@ class ListPayments extends ListRecords
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('dp', '>', 0))
                 ->badge(fn () => $this->getModel()::query()->where('dp', '>', 0)->count())
                 ->badgeColor('info'),
+
+            'approved' => Tab::make('Approved')
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('approval_status', 'approved'))
+                ->badge(fn () => $this->getModel()::query()->where('approval_status', 'approved')->count())
+                ->badgeColor('success'),
+            
+            'pending' => Tab::make('Pending Approval')
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('approval_status', 'pending'))
+                ->badge(fn () => $this->getModel()::query()->where('approval_status', 'pending')->count())
+                ->badgeColor('warning'),
         ];
     }
 }

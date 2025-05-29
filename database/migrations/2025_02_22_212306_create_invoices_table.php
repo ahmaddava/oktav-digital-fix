@@ -16,6 +16,12 @@ return new class extends Migration
             $table->unsignedInteger('sequence_number')->unique();
             $table->string('invoice_number')->unique();  // Kolom nomor invoice
             $table->enum('status', ['paid', 'unpaid']);  // Status pembayaran
+            $table->string('approval_status')
+                ->default('pending')
+                ->comment('pending/approved/rejected');
+            $table->foreignId('approved_by')->nullable()->constrained('users');
+            $table->timestamp('approved_at')->nullable();
+            $table->text('approval_notes')->nullable();
             $table->string('name_customer');  // Menambahkan kolom name_customer
             $table->string('customer_email')->nullable();
             $table->string('alamat_customer')->nullable();

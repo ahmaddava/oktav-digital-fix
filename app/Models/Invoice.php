@@ -11,6 +11,10 @@ class Invoice extends Model
     protected $fillable = [
         'sequence_number', 
         'status', 
+        'approval_status',
+        'approved_by',
+        'approved_at',
+        'approval_notes',
         'name_customer',
         'customer_phone', 
         'notes', 
@@ -21,6 +25,12 @@ class Invoice extends Model
         'customer_email',
         'alamat_customer',
     ];
+
+
+    public function scopeApprovedForProduction($query)
+    {
+        return $query->where('approval_status', 'approved');
+    }
 
     protected $casts = [
         'created_at' => 'datetime',
@@ -171,7 +181,30 @@ class Invoice extends Model
             // Jika invoice sudah ada (update), hitung ulang grand_total
             if ($invoice->exists) {
                 $invoice->grand_total = $invoice->products()->sum('total_price');
-            }
+            };
+
+            
+            static::updated(function ($invoice) {
+                $newStatus = $invoice->approval_status;
+                $oldStatus = $invoice->getOriginal('approval_status');
+                
+                if ($newStatus === 'approved') {
+                    // Buat record production jika belum ada
+                    $invoice->production()->firstOrCreate(
+                        ['invoice_id' => $invoice->id],
+                        [
+                            'production_date' => now(),
+                            'status' => 'pending',
+                            'payment_status' => $invoice->status,
+                            'notes' => $invoice->approval_notes
+                        ]
+                    );
+                } 
+                elseif (($newStatus === 'pending' || $newStatus === 'rejected') && $oldStatus === 'approved') {
+                    // Hapus record production jika sebelumnya approved
+                    $invoice->production()->delete();
+                }
+            });
         });
     }
 

@@ -74,14 +74,15 @@ class ProductResource extends Resource implements HasShieldPermissions
                     ->visible(fn (Get $get): bool => $get('type') === 'digital_print')
                     ->hidden(fn (Get $get): bool => $get('type') === 'jasa'),
     
-                // Input untuk click (juga hanya untuk produk digital print)
                 TextInput::make('click')
                     ->label('Click')
                     ->numeric()
-                    ->required(fn (Get $get): bool => $get('type') === 'digital_print')
+                    // Required untuk digital_print dan jasa
+                    ->required(fn (Get $get): bool => in_array($get('type'), ['digital_print', 'jasa']))
                     ->default(0)
-                    ->visible(fn (Get $get): bool => $get('type') === 'digital_print')
-                    ->hidden(fn (Get $get): bool => $get('type') === 'jasa'),
+                    // Visible untuk digital_print dan jasa
+                    ->visible(fn (Get $get): bool => in_array($get('type'), ['digital_print', 'jasa'])),
+                    
                 
                 // Repeater untuk menambahkan beberapa set harga berdasarkan quantity
                 Repeater::make('prices')
