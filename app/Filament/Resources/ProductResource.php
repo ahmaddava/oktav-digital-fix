@@ -92,7 +92,6 @@ class ProductResource extends Resource implements HasShieldPermissions
                         TextInput::make('min_quantity')
                             ->label('Minimum Quantity')
                             ->numeric()
-                            ->required()
                             ->minValue(1)
                             ->placeholder('Contoh: 100, 300, 500, 700, 1000'),
     
@@ -100,7 +99,6 @@ class ProductResource extends Resource implements HasShieldPermissions
                         TextInput::make('price')
                             ->label('Harga')
                             ->numeric()
-                            ->required()
                             ->prefix('Rp')
                             ->placeholder('Harga untuk quantity tersebut'),
                     ])

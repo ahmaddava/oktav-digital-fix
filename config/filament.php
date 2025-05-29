@@ -86,4 +86,11 @@ return [
 
     'livewire_loading_delay' => 'default',
 
+    // config/filament.php
+    'resources' => [
+        // ...
+        \App\Filament\Resources\InvoiceResource::class,
+        \App\Filament\Resources\PaymentResource::class,
+    ],
+
 ];

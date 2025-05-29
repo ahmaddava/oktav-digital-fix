@@ -17,7 +17,6 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Forms\Components\TextInput;
 use Filament\Support\Enums\IconPosition;
 use Illuminate\Database\Eloquent\Builder;
-use Filament\Forms\Components\ToggleButtons;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\On;
 use App\Filament\Resources\InvoiceResource\Pages;
@@ -96,6 +95,15 @@ class InvoiceResource extends Resource implements HasShieldPermissions
                 Hidden::make('grand_total')
                     ->reactive()
                     ->default(0),
+                    
+                // Set default values for payment fields
+                Hidden::make('status')
+                    ->default('unpaid'),
+                Hidden::make('payment_method')
+                    ->default('transfer'),
+                Hidden::make('dp')
+                    ->default(0),
+                    
                 Wizard::make([
                     Wizard\Step::make('Order Details')
                         ->icon('heroicon-o-document-text')
@@ -222,7 +230,7 @@ class InvoiceResource extends Resource implements HasShieldPermissions
                             ])
                         ->columns(2),
                     
-                        Wizard\Step::make('Order Items')
+                    Wizard\Step::make('Order Items')
                         ->icon('heroicon-o-shopping-cart')
                         ->schema([
                             Section::make('Product Details')
@@ -374,103 +382,30 @@ class InvoiceResource extends Resource implements HasShieldPermissions
                                                 ->reactive()
                                                 ->columnSpan(1),
                                         ]),
-                                    ])      
+                                    ]),
+                                
+                                // Add Grand Total Display at the bottom
+                                Section::make('Order Summary')
+                                    ->schema([
+                                        TextInput::make('grand_total')
+                                            ->label('Grand Total')
+                                            ->disabled()
+                                            ->prefix('Rp ')
+                                            ->formatStateUsing(function ($state) {
+                                                return number_format((float)$state, 0, ',', '.');
+                                            })
+                                            ->dehydrated()
+                                            ->columnSpan(1)
+                                            ->required()
+                                            ->numeric()
+                                            ->default(0),
+                                    ])
+                                    ->columnSpanFull()
+                                    ->compact(),
                             ])
                             ->compact()
                         ])
                         ->columns(1), 
-                         // Wizard 3: Payment
-                        Wizard\Step::make('Payment')
-                            ->icon('heroicon-o-currency-dollar')
-                            ->schema([
-                                Section::make('Payment Details')
-                                ->schema([
-                                    // Tombol untuk menghitung ulang total jika dibutuhkan
-                                    \Filament\Forms\Components\Actions::make([
-                                        FormAction::make('calculateGrandTotal')
-                                            ->label('Hitung Ulang Total')
-                                            ->icon('heroicon-o-calculator')
-                                            ->button()
-                                            ->color('primary')
-                                            ->action(function (Get $get, Set $set) {
-                                                $invoiceProducts = $get('invoiceProducts') ?? [];
-                                                $grandTotal = 0;
-                                                
-                                                foreach ($invoiceProducts as $item) {
-                                                    if (isset($item['total_price'])) {
-                                                        $grandTotal += (int) $item['total_price'];
-                                                    }
-                                                }
-                                                
-                                                $set('grand_total', $grandTotal);
-                                            }),
-                                    ])->columnSpanFull(),
-                                    
-                                    // Total Harga
-                                    TextInput::make('grand_total')
-                                        ->label('Total Harga')
-                                        ->disabled()
-                                        ->prefix('Rp ')
-                                        ->formatStateUsing(function ($state) {
-                                            return number_format((float)$state, 0, ',', '.');
-                                        })
-                                        ->dehydrated() // Pastikan nilai disimpan ke database
-                                        ->columnSpan(1)
-                                        ->required()
-                                        ->numeric()
-                                        ->default(0),
-        
-                                        // Status Pembayaran
-                                    ToggleButtons::make('status')
-                                         ->label('Status')
-                                        ->options([
-                                            'paid' => 'Paid',
-                                            'unpaid' => 'Unpaid',
-                                        ])
-                                        ->required()
-                                        ->inline()
-                                        ->colors([
-                                            'paid' => 'success',
-                                            'unpaid' => 'danger',
-                                        ])
-                                        ->icons([
-                                            'paid' => 'heroicon-s-check-circle',
-                                            'unpaid' => 'heroicon-s-exclamation-circle',
-                                        ])
-                                        ->default('unpaid')
-                                        ->reactive(),
-        
-                                        // Jenis Pembayaran
-                                        ToggleButtons::make('payment_method')
-                                            ->label('Jenis Pembayaran')
-                                            ->options([
-                                                'transfer' => 'Transfer',
-                                                'cash' => 'Cash',
-                                            ])
-                                            ->required()
-                                            ->inline()
-                                            ->colors([
-                                                'transfer' => 'info',
-                                                'cash' => 'warning',
-                                            ])
-                                            ->icons([
-                                                'transfer' => 'heroicon-s-credit-card',
-                                                'cash' => 'heroicon-s-currency-dollar',
-                                            ])
-                                            ->default('transfer'),
-        
-                                        // Down Payment (DP)
-                                        TextInput::make('dp')
-                                            ->label('Down Payment (DP)')
-                                            ->numeric()
-                                            ->prefix('Rp')
-                                            ->placeholder('Masukkan jumlah DP')
-                                            ->hidden(fn ($get) => $get('status') !== 'unpaid'),
-                                    ])
-                                    ->columns(2)
-                                    ->compact(),
-                            ])
-                            ->columns(1),
                     ])
                     ->skippable(false)
                     ->columnSpanFull()
@@ -540,6 +475,11 @@ class InvoiceResource extends Resource implements HasShieldPermissions
                     ->label('Customer Name')
                     ->searchable(),
                 
+                TextColumn::make('grand_total')
+                    ->label('Total Amount')
+                    ->money('IDR')
+                    ->sortable(),
+                
                 // Gunakan accessor untuk menampilkan produk
                 TextColumn::make('productSummary')
                     ->label('Products')
@@ -576,6 +516,11 @@ class InvoiceResource extends Resource implements HasShieldPermissions
             ->actions([
                 Tables\Actions\EditAction::make(),
                 Tables\Actions\DeleteAction::make(),
+                \Filament\Tables\Actions\Action::make('manage_payment')
+                    ->label('Manage Payment')
+                    ->icon('heroicon-o-credit-card')
+                    ->url(fn ($record) => PaymentResource::getUrl('edit', ['record' => $record]))
+                    ->color('success'),
                 \Filament\Tables\Actions\Action::make('print')
                     ->label('Print Invoice')
                     ->icon('heroicon-o-printer')
@@ -590,7 +535,7 @@ class InvoiceResource extends Resource implements HasShieldPermissions
             ->modifyQueryUsing(function (Builder $query) {
                 return $query->with(['products' => function($q) {
                     $q->select('products.id', 'products.product_name', 'invoice_product.quantity', 'invoice_product.invoice_id');
-                }])->select('id', 'invoice_number', 'status', 'payment_method', 'name_customer', 'created_at');
+                }])->select('id', 'invoice_number', 'status', 'payment_method', 'name_customer', 'grand_total', 'created_at');
             })
             ->recordAction(null)
             ->deferLoading()
@@ -602,11 +547,13 @@ class InvoiceResource extends Resource implements HasShieldPermissions
         return [];
     }
 
+    // app/Filament/Resources/InvoiceResource.php
     public static function getPages(): array
     {
         return [
             'index' => Pages\ListInvoices::route('/'),
             'create' => Pages\CreateInvoice::route('/create'),
+            'view' => Pages\ViewInvoice::route('/{record}'), // Tambahkan ini
             'edit' => Pages\EditInvoice::route('/{record}/edit'),
         ];
     }

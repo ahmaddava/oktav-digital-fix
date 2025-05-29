@@ -13,6 +13,7 @@ use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Filament\Notifications\Notification;
+use Illuminate\Support\HtmlString;
 
 class ProductionResource extends Resource
 {
@@ -21,63 +22,113 @@ class ProductionResource extends Resource
     protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
 
     public static function form(Form $form): Form
-    {
-        return $form
-            ->schema([
-                Forms\Components\Select::make('invoice_id')
-                    ->label('Invoice')
-                    ->options(function () {
-                        return Invoice::availableForProduction()
-                            ->get()
-                            ->pluck('invoice_number', 'id');
-                    })
-                    ->searchable()
-                    ->required(),
-
-                Forms\Components\Select::make('machine_type')
-                    ->label('Mesin')
-                    ->options([
-                        'mesin_1' => 'Mesin 1',
-                        'mesin_2' => 'Mesin 2',
-                    ])
-                    ->default('mesin_1')
-                    ->required(),
-
-                Forms\Components\TextInput::make('failed_prints')
-                    ->label('Jumlah Gagal Cetak')
-                    ->numeric()
-                    ->default(0)
-                    ->required(),
-
-                Forms\Components\Textarea::make('notes')
-                    ->label('Catatan')
-                    ->columnSpanFull(),
-
-                Forms\Components\Hidden::make('is_adjustment')
-                    ->default(0), // Semua production manual bukan adjustment
-                
-                Forms\Components\Radio::make('status')
-                    ->label('Status')
-                    ->options([
-                        'pending' => 'Pending',
-                        'completed' => 'Selesai',
-                    ])
-                    ->default('pending')
-                    ->inline()
-                    ->afterStateUpdated(function (Forms\Set $set, $state) {
-                        if ($state === 'completed') {
-                            $set('completed_at', now());
-                        } else {
-                            $set('completed_at', null);
+{
+    return $form
+        ->schema([
+            Forms\Components\Select::make('invoice_id')
+                ->label('Invoice')
+                ->options(function () {
+                    return Invoice::availableForProduction()
+                        ->get()
+                        ->pluck('invoice_number', 'id');
+                })
+                ->searchable()
+                ->required()
+                ->reactive()
+                ->afterStateUpdated(function (Forms\Set $set, $state) {
+                    // Clear previous values when invoice changes
+                    $set('notes', null);
+                    
+                    // If an invoice is selected, fetch its data
+                    if ($state) {
+                        $invoice = Invoice::find($state);
+                        if ($invoice) {
+                            $set('notes', $invoice->notes);
                         }
-                    }),
+                    }
+                }),
 
-                Forms\Components\DateTimePicker::make('completed_at')
-                    ->label('Tanggal Selesai')
-                    ->hidden()
-                    ->dehydrated(),
-            ]);
-    }
+            Forms\Components\Section::make('Produk Yang Akan Diproduksi')
+                ->schema([
+                    Forms\Components\Placeholder::make('products')
+                        ->label('Daftar Produk')
+                        ->content(function (callable $get) {
+                            $invoiceId = $get('invoice_id');
+                            if (!$invoiceId) {
+                                return 'Pilih invoice untuk melihat produk yang akan diproduksi';
+                            }
+
+                            $invoice = Invoice::with('products')->find($invoiceId);
+                            if (!$invoice || $invoice->products->isEmpty()) {
+                                return 'Tidak ada produk ditemukan untuk invoice ini';
+                            }
+
+                            $productsList = '<div class="space-y-2">';
+                            foreach ($invoice->products as $product) {
+                                $productsList .= '<div class="p-2 bg-gray-100 rounded flex items-center">';
+                                $productsList .= '<div class="flex-1">';
+                                $productsList .= '<strong>' . $product->product_name . '</strong> (SKU: ' . $product->sku . ')<br>';
+                                $productsList .= 'Jumlah: <span class="font-medium">' . $product->pivot->quantity . '</span> unit<br>';
+                                $productsList .= 'Tipe: <span class="font-medium">' . ucfirst(str_replace('_', ' ', $product->type)) . '</span>';
+                                $productsList .= '</div>';
+                                
+                                // Add a visual cue for quantity
+                                $productsList .= '<div class="text-3xl font-bold bg-blue-100 text-blue-800 rounded p-2 flex items-center justify-center min-w-16">';
+                                $productsList .= $product->pivot->quantity;
+                                $productsList .= '</div>';
+                                
+                                $productsList .= '</div>';
+                            }
+                            $productsList .= '</div>';
+
+                            return new HtmlString($productsList);
+                        }),
+                ]),
+
+            Forms\Components\Select::make('machine_type')
+                ->label('Mesin')
+                ->options([
+                    'mesin_1' => 'Mesin 1',
+                    'mesin_2' => 'Mesin 2',
+                ])
+                ->default('mesin_1')
+                ->required(),
+
+            Forms\Components\TextInput::make('failed_prints')
+                ->label('Jumlah Gagal Cetak')
+                ->numeric()
+                ->default(0)
+                ->required(),
+
+            Forms\Components\Textarea::make('notes')
+                ->label('Catatan')
+                ->columnSpanFull(),
+
+            Forms\Components\Hidden::make('is_adjustment')
+                ->default(0), // Semua production manual bukan adjustment
+
+            Forms\Components\Radio::make('status')
+                ->label('Status')
+                ->options([
+                    'pending' => 'Pending',
+                    'completed' => 'Selesai',
+                ])
+                ->default('pending')
+                ->inline()
+                ->afterStateUpdated(function (Forms\Set $set, $state) {
+                    if ($state === 'completed') {
+                        $set('completed_at', now());
+                    } else {
+                        $set('completed_at', null);
+                    }
+                }),
+
+            Forms\Components\DateTimePicker::make('completed_at')
+                ->label('Tanggal Selesai')
+                ->hidden()
+                ->dehydrated(),
+        ]);
+}
 
     public static function table(Table $table): Table
     {

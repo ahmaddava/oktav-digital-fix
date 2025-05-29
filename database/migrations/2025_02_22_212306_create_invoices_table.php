@@ -13,6 +13,7 @@ return new class extends Migration
     {
         Schema::create('invoices', function (Blueprint $table) {
             $table->id();
+            $table->unsignedInteger('sequence_number')->unique();
             $table->string('invoice_number')->unique();  // Kolom nomor invoice
             $table->enum('status', ['paid', 'unpaid']);  // Status pembayaran
             $table->string('name_customer');  // Menambahkan kolom name_customer

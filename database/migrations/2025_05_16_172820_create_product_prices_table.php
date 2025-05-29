@@ -14,8 +14,8 @@ return new class extends Migration
         Schema::create('product_prices', function (Blueprint $table) {
             $table->id();
             $table->foreignId('product_id')->constrained('products')->onDelete('cascade');
-            $table->integer('min_quantity'); // Quantity minimum untuk harga ini berlaku
-            $table->integer('price'); // Harga untuk quantity tertentu
+            $table->integer('min_quantity')->nullable();
+            $table->integer('price')->nullable();
             $table->timestamps();
         });
     }

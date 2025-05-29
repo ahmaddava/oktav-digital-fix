@@ -24,7 +24,9 @@ class Invoice extends Model
 
     protected $casts = [
         'created_at' => 'datetime',
-        'grand_total' => 'decimal:2',
+        'paid_at' => 'datetime',
+        'dp' => 'integer',
+        'grand_total' => 'integer',
     ];
     
     // Variable untuk menyimpan produk yang telah di-load
@@ -171,5 +173,27 @@ class Invoice extends Model
                 $invoice->grand_total = $invoice->products()->sum('total_price');
             }
         });
+    }
+
+    // Tambahkan accessor untuk remaining amount
+    public function getRemainingAmountAttribute()
+    {
+        return $this->grand_total - ($this->dp ?? 0);
+    }
+
+    // Tambahkan scope untuk filter payment status
+    public function scopePaid($query)
+    {
+        return $query->where('status', 'paid');
+    }
+
+    public function scopeUnpaid($query)
+    {
+        return $query->where('status', 'unpaid');
+    }
+
+    public function scopeWithDownPayment($query)
+    {
+        return $query->where('dp', '>', 0);
     }
 }
