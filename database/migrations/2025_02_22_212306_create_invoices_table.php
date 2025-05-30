@@ -30,6 +30,7 @@ return new class extends Migration
             $table->decimal('dp', 10, 2)->nullable();  // Tambahkan kolom dp
             $table->decimal('grand_total', 10, 2);  // Kolom grand_total
             $table->enum('payment_method', ['transfer', 'cash']);; 
+            $table->string('attachment_path')->nullable();
             $table->timestamps();  // Kolom created_at dan updated_at
         });
     }

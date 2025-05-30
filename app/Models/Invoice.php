@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use App\Models\InvoiceProduct;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Support\Facades\Storage;
 
 class Invoice extends Model
 {
@@ -24,6 +25,7 @@ class Invoice extends Model
         'grand_total',
         'customer_email',
         'alamat_customer',
+        'attachment_path',
     ];
 
 
@@ -228,5 +230,10 @@ class Invoice extends Model
     public function scopeWithDownPayment($query)
     {
         return $query->where('dp', '>', 0);
+    }
+
+    public function getAttachmentUrlAttribute()
+    {
+        return $this->attachment_path ? Storage::url($this->attachment_path) : null;
     }
 }

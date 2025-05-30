@@ -29,6 +29,7 @@ use Filament\Forms\Components\Actions;
 use Filament\Forms\Get;
 use Filament\Forms\Set;
 use BezhanSalleh\FilamentShield\Contracts\HasShieldPermissions;
+use Filament\Forms\Components\FileUpload;
 
 class InvoiceResource extends Resource implements HasShieldPermissions
 {
@@ -83,12 +84,15 @@ class InvoiceResource extends Resource implements HasShieldPermissions
         }
         
         // Generate invoice number langsung tanpa cache
-        $lastInvoice = Invoice::select('sequence_number')
-            ->latest('sequence_number')
-            ->first();
         $datePart = now()->timezone('Asia/Jakarta')->format('dmy');
-        $sequenceNumber = $lastInvoice ? $lastInvoice->sequence_number + 1 : 1;
-        $invoiceNumber = 'INV-'.str_pad($sequenceNumber, 3, '0', STR_PAD_LEFT).$datePart;
+
+        $lastInvoiceToday = Invoice::whereDate('created_at', now()->timezone('Asia/Jakarta')->toDateString())
+            ->orderByDesc('sequence_number')
+            ->first();
+        
+        $sequenceNumber = $lastInvoiceToday ? $lastInvoiceToday->sequence_number + 1 : 1;
+        $invoiceNumber = 'INV-' . str_pad($sequenceNumber, 3, '0', STR_PAD_LEFT) . $datePart;
+        
 
         return $form
             ->schema([
@@ -223,8 +227,26 @@ class InvoiceResource extends Resource implements HasShieldPermissions
                                     Textarea::make('notes')
                                         ->label('Notes')
                                         ->rows(3)
-                                        ->columnSpanFull()
-                                ])
+                                        ->columnSpanFull(),
+
+                                    //file upload
+                                    FileUpload::make('attachment_path')
+                                    ->label('Attach File')
+                                    ->maxSize(1024000) // 1 GB
+                                    ->acceptedFileTypes([
+                                        'application/zip',
+                                        'application/x-zip-compressed',
+                                        'application/vnd.rar',
+                                        'application/x-rar-compressed',
+                                        'application/octet-stream', // fallback untuk file binary
+                                        // Tambahkan tipe lain jika perlu
+                                    ])
+                                    ->downloadable()
+                                    ->openable()
+                                    ->storeFileNamesIn('original_filename')
+                                    ->preserveFilenames() // <-- Ini kunci agar nama file tidak diubah!
+                                    ->columnSpanFull(),
+                                ])                                
                                 ->columns(2)
                                 ->compact(),
                             ])

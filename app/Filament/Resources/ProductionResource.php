@@ -14,6 +14,7 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Filament\Notifications\Notification;
 use Illuminate\Support\HtmlString;
+use Illuminate\Support\Facades\Storage;
 
 class ProductionResource extends Resource
 {
@@ -22,116 +23,151 @@ class ProductionResource extends Resource
     protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
 
     public static function form(Form $form): Form
-{
-    return $form
-        ->schema([
-            Forms\Components\Select::make('invoice_id')
-                ->label('Invoice')
-                ->options(function () {
-                    return Invoice::availableForProduction()
-                        ->get()
-                        ->pluck('invoice_number', 'id');
-                })
-                ->searchable()
-                ->required()
-                ->reactive()
-                ->afterStateUpdated(function (Forms\Set $set, $state) {
-                    // Clear previous values when invoice changes
-                    $set('notes', null);
-                    
-                    // If an invoice is selected, fetch its data
-                    if ($state) {
-                        $invoice = Invoice::find($state);
-                        if ($invoice) {
-                            $set('notes', $invoice->notes);
-                        }
-                    }
-                }),
-
-            Forms\Components\Section::make('Produk Yang Akan Diproduksi')
-                ->schema([
-                    Forms\Components\Placeholder::make('products')
-                        ->label('Daftar Produk')
-                        ->content(function (callable $get) {
-                            $invoiceId = $get('invoice_id');
-                            if (!$invoiceId) {
-                                return 'Pilih invoice untuk melihat produk yang akan diproduksi';
-                            }
-
-                            $invoice = Invoice::with('products')->find($invoiceId);
-                            if (!$invoice || $invoice->products->isEmpty()) {
-                                return 'Tidak ada produk ditemukan untuk invoice ini';
-                            }
-
-                            $productsList = '<div class="space-y-2">';
-                            foreach ($invoice->products as $product) {
-                                $productsList .= '<div class="flex items-center justify-between p-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">';
-                                
-                                // Product name
-                                $productsList .= '<div class="flex-1">';
-                                $productsList .= '<span class="font-medium text-gray-800 dark:text-gray-200">' . $product->product_name . '</span>';
+    {
+        return $form
+            ->schema([
+                // Bagian Pilih Invoice & Lampiran
+                Forms\Components\Section::make('Informasi Invoice')
+                    ->description('Pilih invoice yang akan diproses produksi dan lihat lampirannya.')
+                    ->schema([
+                        Forms\Components\Grid::make(2)
+                            ->schema([
+                                Forms\Components\Select::make('invoice_id')
+                                    ->label('Invoice')
+                                    ->options(function () {
+                                        return Invoice::availableForProduction()
+                                            ->get()
+                                            ->pluck('invoice_number', 'id');
+                                    })
+                                    ->searchable()
+                                    ->required()
+                                    ->reactive()
+                                    ->afterStateUpdated(function (Forms\Set $set, $state) {
+                                        // Clear previous values when invoice changes
+                                        $set('notes', null);
+                                        // If an invoice is selected, fetch its data
+                                        if ($state) {
+                                            $invoice = Invoice::find($state);
+                                            if ($invoice) {
+                                                $set('notes', $invoice->notes);
+                                            }
+                                        }
+                                    }),
+    
+                                Forms\Components\Placeholder::make('invoice_attachment')
+                                    ->label('Lampiran Invoice')
+                                    ->content(function (callable $get) {
+                                        $invoiceId = $get('invoice_id');
+                                        if (!$invoiceId) {
+                                            return 'Pilih invoice untuk melihat lampiran';
+                                        }
+                                        $invoice = Invoice::find($invoiceId);
+                                        if (!$invoice || !$invoice->attachment_path) {
+                                            return 'Tidak ada lampiran untuk invoice ini';
+                                        }
+                                        $url = Storage::url($invoice->attachment_path);
+                                        $filename = basename($invoice->attachment_path);
+    
+                                        return new HtmlString(
+                                            "<div class='flex items-center p-2 bg-gray-50 dark:bg-gray-900 rounded-lg'>
+                                                <svg class='w-5 h-5 mr-2 text-gray-500' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
+                                                    <path stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z'></path>
+                                                </svg>
+                                                <a href='{$url}' target='_blank' class='text-blue-600 hover:underline dark:text-blue-400'>
+                                                    {$filename}
+                                                </a>
+                                            </div>"
+                                        );
+                                    }),
+                            ]),
+                    ])
+                    ->columns(1),
+    
+                // Bagian Produk yang Akan Diproduksi
+                Forms\Components\Section::make('Produk Yang Akan Diproduksi')
+                    ->schema([
+                        Forms\Components\Placeholder::make('products')
+                            ->label('Daftar Produk')
+                            ->content(function (callable $get) {
+                                $invoiceId = $get('invoice_id');
+                                if (!$invoiceId) {
+                                    return 'Pilih invoice untuk melihat produk yang akan diproduksi';
+                                }
+                                $invoice = Invoice::with('products')->find($invoiceId);
+                                if (!$invoice || $invoice->products->isEmpty()) {
+                                    return 'Tidak ada produk ditemukan untuk invoice ini';
+                                }
+                                $productsList = '<div class="space-y-2">';
+                                foreach ($invoice->products as $product) {
+                                    $productsList .= '<div class="flex items-center justify-between p-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">';
+                                    // Product name
+                                    $productsList .= '<div class="flex-1">';
+                                    $productsList .= '<span class="font-medium text-gray-800 dark:text-gray-200">' . $product->product_name . '</span>';
+                                    $productsList .= '</div>';
+                                    // Quantity
+                                    $productsList .= '<div class="ml-4 flex items-center justify-center">';
+                                    $productsList .= '<span class="bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded-full px-3 py-1 text-sm font-medium">';
+                                    $productsList .= $product->pivot->quantity . ' unit';
+                                    $productsList .= '</span>';
+                                    $productsList .= '</div>';
+                                    $productsList .= '</div>';
+                                }
                                 $productsList .= '</div>';
-                                
-                                // Quantity
-                                $productsList .= '<div class="ml-4 flex items-center justify-center">';
-                                $productsList .= '<span class="bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded-full px-3 py-1 text-sm font-medium">';
-                                $productsList .= $product->pivot->quantity . ' unit';
-                                $productsList .= '</span>';
-                                $productsList .= '</div>';
-                                
-                                $productsList .= '</div>';
-                            }
-                            $productsList .= '</div>';
-
-                            return new HtmlString($productsList);
-                        }),
-                ]),
-
-            Forms\Components\Select::make('machine_type')
-                ->label('Mesin')
-                ->options([
-                    'mesin_1' => 'Mesin 1',
-                    'mesin_2' => 'Mesin 2',
-                ])
-                ->default('mesin_1')
-                ->required(),
-
-            Forms\Components\TextInput::make('failed_prints')
-                ->label('Jumlah Gagal Cetak')
-                ->numeric()
-                ->default(0)
-                ->required(),
-
-            Forms\Components\Textarea::make('notes')
-                ->label('Catatan')
-                ->columnSpanFull(),
-
-            Forms\Components\Hidden::make('is_adjustment')
-                ->default(0), // Semua production manual bukan adjustment
-
-            Forms\Components\Radio::make('status')
-                ->label('Status')
-                ->options([
-                    'pending' => 'Pending',
-                    'completed' => 'Selesai',
-                ])
-                ->default('pending')
-                ->inline()
-                ->afterStateUpdated(function (Forms\Set $set, $state) {
-                    if ($state === 'completed') {
-                        $set('completed_at', now());
-                    } else {
-                        $set('completed_at', null);
-                    }
-                }),
-
-            Forms\Components\DateTimePicker::make('completed_at')
-                ->label('Tanggal Selesai')
-                ->hidden()
-                ->dehydrated(),
-        ]);
-}
-
+                                return new HtmlString($productsList);
+                            }),
+                    ])
+                    ->columns(1),
+    
+                // Bagian Detail Produksi
+                Forms\Components\Section::make('Detail Produksi')
+                    ->schema([
+                        Forms\Components\Grid::make(3)
+                            ->schema([
+                                Forms\Components\Select::make('machine_type')
+                                    ->label('Mesin')
+                                    ->options([
+                                        'mesin_1' => 'Mesin 1',
+                                        'mesin_2' => 'Mesin 2',
+                                    ])
+                                    ->default('mesin_1')
+                                    ->required(),
+    
+                                Forms\Components\TextInput::make('failed_prints')
+                                    ->label('Jumlah Gagal Cetak')
+                                    ->numeric()
+                                    ->default(0)
+                                    ->required(),
+    
+                                Forms\Components\Radio::make('status')
+                                    ->label('Status')
+                                    ->options([
+                                        'pending' => 'Pending',
+                                        'completed' => 'Selesai',
+                                    ])
+                                    ->default('pending')
+                                    ->inline()
+                                    ->afterStateUpdated(function (Forms\Set $set, $state) {
+                                        if ($state === 'completed') {
+                                            $set('completed_at', now());
+                                        } else {
+                                            $set('completed_at', null);
+                                        }
+                                    }),
+                            ]),
+                        Forms\Components\DateTimePicker::make('completed_at')
+                            ->label('Tanggal Selesai')
+                            ->hidden()
+                            ->dehydrated(),
+                        Forms\Components\Textarea::make('notes')
+                            ->label('Catatan')
+                            ->columnSpanFull(),
+                        Forms\Components\Hidden::make('is_adjustment')
+                            ->default(0),
+                    ])
+                    ->columns(1),
+            ]);
+    }
+    
     public static function table(Table $table): Table
     {
         return $table
