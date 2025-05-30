@@ -18,7 +18,7 @@ class Invoice extends Model
         'approval_notes',
         'name_customer',
         'customer_phone', 
-        'notes', 
+        'notes_invoice', 
         'invoice_number',
         'dp',
         'payment_method',
@@ -198,7 +198,8 @@ class Invoice extends Model
                             'production_date' => now(),
                             'status' => 'pending',
                             'payment_status' => $invoice->status,
-                            'notes' => $invoice->approval_notes
+                            'approval_notes' => $invoice->approval_notes,
+                            'notes_invoice' => $invoice->notes_invoice,
                         ]
                     );
                 } 

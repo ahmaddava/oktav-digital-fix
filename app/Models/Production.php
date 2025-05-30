@@ -29,6 +29,10 @@ class Production extends Model
         'is_adjustment',
         'adjustment_value',
         'completed_at',
+        'started_at', // New: Timestamp for when production starts
+        'deadline', // New: Deadline for the production
+        'started_at',
+        'completed_at',
     ];
 
     protected $casts = [

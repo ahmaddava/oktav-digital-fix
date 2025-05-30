@@ -26,7 +26,7 @@ return new class extends Migration
             $table->string('customer_email')->nullable();
             $table->string('alamat_customer')->nullable();
             $table->string('customer_phone')->nullable();  // Menambahkan kolom customer_phone
-            $table->text('notes')->nullable();  // Kolom catatan
+            $table->text('notes_invoice')->nullable();  // Kolom catatan
             $table->decimal('dp', 10, 2)->nullable();  // Tambahkan kolom dp
             $table->decimal('grand_total', 10, 2);  // Kolom grand_total
             $table->enum('payment_method', ['transfer', 'cash']);; 

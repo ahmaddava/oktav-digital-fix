@@ -7,6 +7,9 @@ use App\Filament\Resources\ProductionResource;
 use App\Filament\Resources\ProductionResource\Widgets\ProductionFilterWidget;
 use App\Filament\Resources\ProductionResource\Widgets\ProductionStatsWidget;
 use Filament\Actions\CreateAction;
+use Filament\Resources\Components\Tab;
+use Illuminate\Database\Eloquent\Builder;
+use App\Models\Production;
 
 class ListProductions extends ListRecords
 {
@@ -25,6 +28,117 @@ class ListProductions extends ListRecords
             CreateAction::make()
                 ->label('Buat Produksi Baru')
                 ->icon('heroicon-o-plus'),
+        ];
+    }
+
+    public function getTabs(): array
+    {
+        return [
+            'all' => Tab::make('Semua')
+                ->badge(function () {
+                    return Production::where(function ($query) {
+                        $query->where('is_adjustment', 0)
+                            ->orWhereNull('is_adjustment');
+                    })->count();
+                }),
+
+            'deadline_urgent' => Tab::make('Deadline Mendesak')
+                ->badge(function () {
+                    return Production::where(function ($query) {
+                        $query->where('is_adjustment', 0)
+                            ->orWhereNull('is_adjustment');
+                    })
+                    ->where('status', '!=', 'completed')
+                    ->where('deadline', '<=', now()->addDays(2)->toDateString())
+                    ->whereNotNull('deadline')
+                    ->count();
+                })
+                ->badgeColor('danger')
+                ->modifyQueryUsing(function (Builder $query) {
+                    return $query->where(function ($q) {
+                        $q->where('is_adjustment', 0)
+                            ->orWhereNull('is_adjustment');
+                    })
+                    ->where('status', '!=', 'completed')
+                    ->where('deadline', '<=', now()->addDays(2)->toDateString())
+                    ->whereNotNull('deadline');
+                }),
+
+            'pending' => Tab::make('Pending')
+                ->badge(function () {
+                    return Production::where(function ($query) {
+                        $query->where('is_adjustment', 0)
+                            ->orWhereNull('is_adjustment');
+                    })
+                    ->where('status', 'pending')
+                    ->count();
+                })
+                ->badgeColor('warning')
+                ->modifyQueryUsing(function (Builder $query) {
+                    return $query->where(function ($q) {
+                        $q->where('is_adjustment', 0)
+                            ->orWhereNull('is_adjustment');
+                    })
+                    ->where('status', 'pending');
+                }),
+
+            'in_progress' => Tab::make('Sedang Diproduksi')
+                ->badge(function () {
+                    return Production::where(function ($query) {
+                        $query->where('is_adjustment', 0)
+                            ->orWhereNull('is_adjustment');
+                    })
+                    ->where('status', 'started')
+                    ->count();
+                })
+                ->badgeColor('info')
+                ->modifyQueryUsing(function (Builder $query) {
+                    return $query->where(function ($q) {
+                        $q->where('is_adjustment', 0)
+                            ->orWhereNull('is_adjustment');
+                    })
+                    ->where('status', 'started');
+                }),
+
+            'completed' => Tab::make('Selesai Diproduksi')
+                ->badge(function () {
+                    return Production::where(function ($query) {
+                        $query->where('is_adjustment', 0)
+                            ->orWhereNull('is_adjustment');
+                    })
+                    ->where('status', 'completed')
+                    ->count();
+                })
+                ->badgeColor('success')
+                ->modifyQueryUsing(function (Builder $query) {
+                    return $query->where(function ($q) {
+                        $q->where('is_adjustment', 0)
+                            ->orWhereNull('is_adjustment');
+                    })
+                    ->where('status', 'completed');
+                }),
+
+            'overdue' => Tab::make('Terlambat')
+                ->badge(function () {
+                    return Production::where(function ($query) {
+                        $query->where('is_adjustment', 0)
+                            ->orWhereNull('is_adjustment');
+                    })
+                    ->where('status', '!=', 'completed')
+                    ->where('deadline', '<', now()->toDateString())
+                    ->whereNotNull('deadline')
+                    ->count();
+                })
+                ->badgeColor('danger')
+                ->modifyQueryUsing(function (Builder $query) {
+                    return $query->where(function ($q) {
+                        $q->where('is_adjustment', 0)
+                            ->orWhereNull('is_adjustment');
+                    })
+                    ->where('status', '!=', 'completed')
+                    ->where('deadline', '<', now()->toDateString())
+                    ->whereNotNull('deadline');
+                }),
         ];
     }
 }

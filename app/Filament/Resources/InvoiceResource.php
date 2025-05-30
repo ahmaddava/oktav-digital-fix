@@ -60,38 +60,53 @@ class InvoiceResource extends Resource implements HasShieldPermissions
         ];
     }
 
-    public static function form(Form $form): Form
-    {
-        if (self::$productOptions === null) {
-            self::$productOptions = Product::with('prices')->get();
-        }
-
-        // Ambil opsi customer sekali saja
-        if (self::$customerOptions === null) {
-            self::$customerOptions = Customer::select('nama_customer', 'nomor_customer')
-                ->orderBy('nama_customer')
-                ->get()
-                ->mapWithKeys(fn ($customer) => [
-                    $customer->nama_customer => "{$customer->nama_customer} - {$customer->nomor_customer}"
-                ]);
-        }
+    
+public static function form(Form $form): Form
+{
+    // Ambil opsi customer sekali saja
+    if (self::$customerOptions === null) {
+        self::$customerOptions = Customer::select('nama_customer', 'nomor_customer')
+            ->orderBy('nama_customer')
+            ->get()
+            ->mapWithKeys(fn ($customer) => [
+                $customer->nama_customer => "{$customer->nama_customer} - {$customer->nomor_customer}"
+            ]);
+    }
+    
+    // Ambil opsi produk sekali saja
+    if (self::$productOptions === null) {
+        self::$productOptions = Product::with('prices')
+            ->select('id', 'product_name', 'price')
+            ->orderBy('product_name')
+            ->get();
+    }
+    
+    // Generate invoice number dengan logika yang benar
+    $today = now()->timezone('Asia/Jakarta');
+    $datePart = $today->format('dmy'); // format: ddmmyy
+    
+    // Cari invoice dengan tanggal hari ini berdasarkan suffix invoice number
+    $todayPattern = 'INV-%' . $datePart;
+    
+    $lastInvoiceToday = Invoice::where('invoice_number', 'LIKE', $todayPattern)
+        ->orderByDesc('invoice_number')
+        ->first();
+    
+    // Jika tidak ada invoice hari ini, mulai dari 1
+    if (!$lastInvoiceToday) {
+        $sequenceNumber = 1;
+    } else {
+        // Extract sequence number dari invoice number yang ada
+        // Format: INV-001ddmmyy
+        $existingInvoiceNumber = $lastInvoiceToday->invoice_number;
         
-        // Ambil opsi produk sekali saja
-        if (self::$productOptions === null) {
-            self::$productOptions = Product::select('id', 'product_name', 'price')
-                ->orderBy('product_name')
-                ->get();
-        }
-        
-        // Generate invoice number langsung tanpa cache
-        $datePart = now()->timezone('Asia/Jakarta')->format('dmy');
-
-        $lastInvoiceToday = Invoice::whereDate('created_at', now()->timezone('Asia/Jakarta')->toDateString())
-            ->orderByDesc('sequence_number')
-            ->first();
-        
-        $sequenceNumber = $lastInvoiceToday ? $lastInvoiceToday->sequence_number + 1 : 1;
-        $invoiceNumber = 'INV-' . str_pad($sequenceNumber, 3, '0', STR_PAD_LEFT) . $datePart;
+        // Ambil 3 digit setelah "INV-" dan sebelum tanggal (6 digit terakhir)
+        $sequenceStr = substr($existingInvoiceNumber, 4, 3); // ambil karakter ke-4 sampai ke-6
+        $lastSequence = (int) $sequenceStr;
+        $sequenceNumber = $lastSequence + 1;
+    }
+    
+    $invoiceNumber = 'INV-' . str_pad($sequenceNumber, 3, '0', STR_PAD_LEFT) . $datePart;
         
 
         return $form
@@ -224,7 +239,7 @@ class InvoiceResource extends Resource implements HasShieldPermissions
                                     ]),
                                     
                                     // Catatan
-                                    Textarea::make('notes')
+                                    Textarea::make('notes_invoice')
                                         ->label('Notes')
                                         ->rows(3)
                                         ->columnSpanFull(),
