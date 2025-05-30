@@ -65,16 +65,18 @@ class ProductionResource extends Resource
 
                             $productsList = '<div class="space-y-2">';
                             foreach ($invoice->products as $product) {
-                                $productsList .= '<div class="p-2 bg-gray-100 rounded flex items-center">';
+                                $productsList .= '<div class="flex items-center justify-between p-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">';
+                                
+                                // Product name
                                 $productsList .= '<div class="flex-1">';
-                                $productsList .= '<strong>' . $product->product_name . '</strong> (SKU: ' . $product->sku . ')<br>';
-                                $productsList .= 'Jumlah: <span class="font-medium">' . $product->pivot->quantity . '</span> unit<br>';
-                                $productsList .= 'Tipe: <span class="font-medium">' . ucfirst(str_replace('_', ' ', $product->type)) . '</span>';
+                                $productsList .= '<span class="font-medium text-gray-800 dark:text-gray-200">' . $product->product_name . '</span>';
                                 $productsList .= '</div>';
                                 
-                                // Add a visual cue for quantity
-                                $productsList .= '<div class="text-3xl font-bold bg-blue-100 text-blue-800 rounded p-2 flex items-center justify-center min-w-16">';
-                                $productsList .= $product->pivot->quantity;
+                                // Quantity
+                                $productsList .= '<div class="ml-4 flex items-center justify-center">';
+                                $productsList .= '<span class="bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded-full px-3 py-1 text-sm font-medium">';
+                                $productsList .= $product->pivot->quantity . ' unit';
+                                $productsList .= '</span>';
                                 $productsList .= '</div>';
                                 
                                 $productsList .= '</div>';

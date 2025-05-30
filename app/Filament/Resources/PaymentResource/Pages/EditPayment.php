@@ -99,7 +99,7 @@ class EditPayment extends EditRecord
                         'production_date' => now(),
                         'status' => 'pending',
                         'payment_status' => $this->record->status,
-                        'notes' => $this->record->approval_notes
+                        'approval_notes' => $this->record->approval_notes
                     ]
                 );
             } 
