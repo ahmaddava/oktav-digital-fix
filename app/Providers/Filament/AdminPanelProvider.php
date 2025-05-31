@@ -35,29 +35,35 @@ class AdminPanelProvider extends PanelProvider
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\\Filament\\Pages')
             ->pages([
                 Pages\Dashboard::class,
+                \App\Filament\Pages\ProductionCalculator::class,
+            ])
+            ->resources([
+                \App\Filament\Resources\ProductionCategoryResource::class,
+                \App\Filament\Resources\ProductionItemResource::class,
+                \App\Filament\Resources\PriceCalculationResource::class,
             ])
             ->discoverWidgets(in: app_path('Filament/Widgets'), for: 'App\\Filament\\Widgets')
             ->widgets([
                 Widgets\AccountWidget::class,
                 Widgets\FilamentInfoWidget::class,
             ])
-    ->middleware([
-        EncryptCookies::class,
-        AddQueuedCookiesToResponse::class,
-        StartSession::class,
-        AuthenticateSession::class,
-        ShareErrorsFromSession::class,
-        VerifyCsrfToken::class,
-        SubstituteBindings::class,
-        DisableBladeIconComponents::class,
-        DispatchServingFilamentEvent::class,
-    ])
-    ->pages([
-        Dashboard::class,
-    ])
-    ->plugins([])
-    ->authMiddleware([
-        Authenticate::class,
-    ]);
+            ->middleware([
+                EncryptCookies::class,
+                AddQueuedCookiesToResponse::class,
+                StartSession::class,
+                AuthenticateSession::class,
+                ShareErrorsFromSession::class,
+                VerifyCsrfToken::class,
+                SubstituteBindings::class,
+                DisableBladeIconComponents::class,
+                DispatchServingFilamentEvent::class,
+            ])
+            ->pages([
+                Dashboard::class,
+            ])
+            ->plugins([])
+            ->authMiddleware([
+                Authenticate::class,
+            ]);
         }
 }
