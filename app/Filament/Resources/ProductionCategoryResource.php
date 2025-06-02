@@ -26,16 +26,6 @@ class ProductionCategoryResource extends Resource
                     ->label('Nama Kategori')
                     ->required()
                     ->maxLength(255),
-                // Forms\Components\Select::make('type')
-                //     ->label('Tipe')
-                //     ->options([
-                //         'dalam' => 'Dalam',
-                //         'luar' => 'Luar',
-                //         'material' => 'Material',
-                //         'service' => 'Service',
-                //         'profit' => 'Profit'
-                //     ])
-                //     ->nullable(),
                 Forms\Components\Toggle::make('is_active')
                     ->label('Aktif')
                     ->default(true),

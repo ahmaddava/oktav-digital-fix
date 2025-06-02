@@ -34,44 +34,44 @@ class ProductionItemResource extends Resource
                             ->label('Nama Kategori')
                             ->required()
                             ->unique(table: ProductionCategory::class, column: 'name'),
-                        // Jika Anda ingin menambah field lain, tambahkan di sini.
                     ])
                     ->createOptionUsing(function (array $data) {
                         $category = ProductionCategory::create([
                             'name' => $data['name'],
-                            // Tambahkan field lain jika ada.
                         ]);
-                        return $category->getKey(); // return id kategori baru
+                        return $category->getKey();
                     }),
-                    
+
                 Forms\Components\TextInput::make('name')
                     ->label('Nama Item')
                     ->required()
                     ->maxLength(255),
-                    
-                // Forms\Components\Select::make('size')
-                //     ->label('Ukuran')
-                //     ->options([
-                //         'XS' => 'XS',
-                //         'Kecil' => 'Kecil',
-                //         'Sedang' => 'Sedang',
-                //         'Besar' => 'Besar',
-                //         'XXL' => 'XXL'
-                //     ])
-                //     ->nullable(),
-                    
-                // Forms\Components\TextInput::make('dimension')
-                //     ->label('Dimensi')
-                //     ->placeholder('10x10, 10x15, 15x15')
-                //     ->maxLength(255),
-                    
-                    
-                Forms\Components\TextInput::make('price') 
-                    ->label('Harga Utama')
-                    ->numeric()
-                    ->required()
-                    ->prefix('Rp'),
-                    
+
+                // Grid 3 kolom untuk price, lebar_kertas, panjang_kertas
+                Forms\Components\Grid::make(3)
+                    ->schema([
+                        Forms\Components\TextInput::make('price')
+                            ->label('Harga Utama')
+                            ->numeric()
+                            ->required()
+                            ->prefix('Rp')
+                            ->columnSpan(1),
+
+                        Forms\Components\TextInput::make('lebar_kertas')
+                            ->label('Lebar Kertas (cm)')
+                            ->numeric()
+                            ->nullable()
+                            ->minValue(0)
+                            ->columnSpan(1),
+
+                        Forms\Components\TextInput::make('panjang_kertas')
+                            ->label('Panjang Kertas (cm)')
+                            ->numeric()
+                            ->nullable()
+                            ->minValue(0)
+                            ->columnSpan(1),
+                    ]),
+
                 Forms\Components\Toggle::make('is_active')
                     ->label('Aktif')
                     ->default(true),
@@ -92,9 +92,10 @@ class ProductionItemResource extends Resource
                             ->placeholder('Harga untuk quantity tersebut'),
                     ])
                     ->columnSpanFull(),
-
             ]);
     }
+
+    
 
     public static function table(Table $table): Table
     {

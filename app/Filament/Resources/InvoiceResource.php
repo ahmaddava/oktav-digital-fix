@@ -155,7 +155,8 @@ public static function form(Form $form): Form
                                             ->preload()
                                             ->required()
                                             ->reactive()
-                                            ->searchDebounce(300)
+                                            ->searchable()
+                                            ->live()
                                             ->prefixIcon('heroicon-o-user')
                                             ->createOptionForm([
                                                 TextInput::make('nama_customer')
@@ -341,7 +342,7 @@ public static function form(Form $form): Form
                                                     ->searchable()
                                                     ->required()
                                                     ->reactive()
-                                                    ->live(debounce: 300)
+                                                    ->live()
                                                     ->afterStateUpdated(function ($state, $set, $get) {
                                                         if (!$state) return;
                                                         
@@ -370,7 +371,9 @@ public static function form(Form $form): Form
                                                 ->label('Quantity')
                                                 ->numeric()
                                                 ->required()
-                                                ->live(debounce: 300)
+                                                ->default(1)
+                                                ->minValue(1)
+                                                ->live()
                                                 ->afterStateUpdated(function ($state, $set, $get) {
                                                     $quantity = (int) $state;
                                                     $productId = $get('product_id');

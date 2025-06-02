@@ -15,6 +15,8 @@ class ProductionItem extends Model
         'name',
         'size',
         'dimension',
+        'lebar_kertas',
+        'panjang_kertas',
         'price',
         'is_active'
     ];
