@@ -4,7 +4,7 @@ namespace App\Filament\Pages;
 
 use App\Models\ProductionCategory;
 use App\Models\ProductionItem;
-use App\Models\PriceCalculation;
+use App\Models\PriceCalculation; // Jika Anda akan menyimpan hasil kalkulasi
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Pages\Page;
@@ -19,6 +19,8 @@ use App\Models\MasterCost;
 use App\Models\PolyCost;
 use Filament\Forms\Components\Toggle;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Get;
+use Filament\Forms\Set;
 
 class ProductionCalculator extends Page implements HasForms
 {
@@ -29,326 +31,309 @@ class ProductionCalculator extends Page implements HasForms
     protected static string $view = 'filament.pages.production-calculator';
 
     public ?array $data = [];
-    public $selectedSize = 'Sedang'; // Default or example, ensure it's handled if used
-    public $productName = '';       // Ensure this is bound or used appropriately
-    public $calculationResult = null;
 
-    // Properties to control visibility of sections
-    public $includeBoard = false;
-    public $includeCoverLuar = false;
-    public $includeCoverDalam = false;
-    public $includeCoverLuarLidah = false;
-    public $includeBusa = false;
+    // Properties to control visibility and hold state for calculations
+    public bool $includeBoard = false;
+    public bool $includeCoverLuar = false;
+    public bool $includeCoverDalam = false;
+    public bool $includeCoverLuarLidah = false;
+    public bool $includeBusa = false;
 
+    public $calculationResult = null; // Untuk menyimpan hasil akhir kalkulasi harga
 
     public function mount(): void
     {
-        // Initialize form with default data, including initial states for toggles
-        // which will ensure calculateAllDimensionsAndQuantities uses correct include flags.
+        // Inisialisasi form dengan state awal, termasuk nilai default untuk toggle
         $this->form->fill([
+            'quantity' => 1,
+            'include_knife_cost' => 'tidak_ada',
             'includeBoard' => $this->includeBoard,
             'includeCoverLuar' => $this->includeCoverLuar,
             'includeCoverDalam' => $this->includeCoverDalam,
             'includeCoverLuarLidah' => $this->includeCoverLuarLidah,
             'includeBusa' => $this->includeBusa,
-            // Add other default values if necessary
+            // Anda bisa menambahkan nilai default lain di sini
         ]);
-        // Initial calculation if needed, or rely on user interaction
-        // $this->updateBoardCalculations(); // Uncomment if initial calculation is desired
+        // Panggil update kalkulasi jika ingin ada nilai awal yang dihitung saat halaman dimuat
+        // $this->updateAllCalculations();
     }
 
-    public function getCategoryItems()
+    // Method untuk mendapatkan harga item berdasarkan kuantitas (jika ada tier pricing)
+    protected function getItemPriceByQuantity(?ProductionItem $item, int $quantity): float
     {
-        // Fetch all active categories and their active items
-        return ProductionCategory::with(['items' => function ($query) {
-            $query->where('is_active', true);
-        }])->where('is_active', true)->get();
-    }
-
-    // Method untuk mendapatkan harga berdasarkan quantity
-    protected function getItemPriceByQuantity($item, $quantity)
-    {
-        $price = $item->price;
-
-        $tierPrices = $item->prices()
-            ->where('min_quantity', '<=', $quantity)
-            ->orderBy('min_quantity', 'desc')
-            ->get();
-
-        if ($tierPrices->isNotEmpty()) {
-            $price = $tierPrices->first()->price;
-        }
-
-        return $price;
-    }
-
-    // Method untuk menghitung board berdasarkan dimensi
-    protected function calculateBoard($panjang, $lebar, $tinggi)
-    {
-        // Pastikan semua input numerik dan tidak null
-        if ($panjang === null || $lebar === null || $tinggi === null || !is_numeric($panjang) || !is_numeric($lebar) || !is_numeric($tinggi)) {
+        if (!$item) {
             return 0;
         }
-        return (2 * (float)$tinggi) + (float)$panjang + 3;
+        // Implementasi logika tier pricing Anda di sini
+        // Contoh sederhana:
+        // $price = $item->price;
+        // $tierPrices = $item->prices()->where('min_quantity', '<=', $quantity)->orderBy('min_quantity', 'desc')->first();
+        // if ($tierPrices) {
+        //     $price = $tierPrices->price;
+        // }
+        // return (float)$price;
+        return (float)($item->price ?? 0); // Gunakan harga dasar jika tidak ada tier pricing
     }
 
+    /**
+     * Menghitung dimensi potongan board.
+     * RUMUS INI PERLU DIVERIFIKASI SESUAI KEBUTUHAN PRODUKSI ANDA.
+     * Saat ini: (2 * tinggi_input) + sisi_panjang_input + konstanta_allowance.
+     * @param float|null $panjangInput Dimensi sisi utama (panjang atau lebar box)
+     * @param float|null $lebarInput Dimensi sisi sekunder (tidak digunakan di rumus saat ini)
+     * @param float|null $tinggiInput Dimensi tinggi box
+     * @return float
+     */
+    protected function calculateBoardDimension(?float $panjangInput, ?float $lebarInput, ?float $tinggiInput): float
+    {
+        if ($panjangInput === null || $tinggiInput === null || !is_numeric($panjangInput) || !is_numeric($tinggiInput)) {
+            return 0;
+        }
+        // FORMULA UTAMA UNTUK BOARD - Sesuaikan konstanta '3' jika perlu
+        return (2 * $tinggiInput) + $panjangInput + 3;
+    }
+
+    /**
+     * Menghitung dimensi potongan cover (luar, dalam, lidah).
+     * RUMUS INI PERLU DIVERIFIKASI SESUAI KEBUTUHAN PRODUKSI ANDA.
+     * @param float|null $panjangInput Dimensi sisi utama (panjang atau lebar box)
+     * @param float|null $tinggiInput Dimensi tinggi box
+     * @param float $allowance Konstanta tambahan (misal: 3+4 untuk cover luar, 3 untuk cover dalam)
+     * @return float
+     */
+    protected function calculateCoverDimension(?float $panjangInput, ?float $tinggiInput, float $allowance): float
+    {
+        if ($panjangInput === null || $tinggiInput === null || !is_numeric($panjangInput) || !is_numeric($tinggiInput)) {
+            return 0;
+        }
+        return (2 * $tinggiInput) + $panjangInput + $allowance;
+    }
+
+    /**
+     * Menghitung dimensi potongan busa.
+     * RUMUS INI PERLU DIVERIFIKASI SESUAI KEBUTUHAN PRODUKSI ANDA.
+     * @param float|null $panjangInput Dimensi panjang box
+     * @param float $allowance Konstanta tambahan
+     * @return float
+     */
+    protected function calculateBusaDimension(?float $panjangInput, float $allowance): float
+    {
+        if ($panjangInput === null || !is_numeric($panjangInput)) {
+            return 0;
+        }
+        return $panjangInput + $allowance;
+    }
+
+
     // Helper function to calculate Qty1, Qty2, Final Qty for a given item type
-    protected function calculateQuantities($itemPanjang, $itemLebar, $panjangKertas, $lebarKertas) {
-        // Pastikan semua input numerik dan lebih besar dari 0
+    protected function calculateSheetQuantities($itemPanjang, $itemLebar, $panjangKertas, $lebarKertas): array
+    {
         if (!is_numeric($itemPanjang) || !is_numeric($itemLebar) || !is_numeric($panjangKertas) || !is_numeric($lebarKertas) ||
             $itemPanjang <= 0 || $itemLebar <= 0 || $panjangKertas <= 0 || $lebarKertas <= 0) {
             return ['qty1' => 0, 'qty2' => 0, 'final_qty' => 0];
         }
 
         $qty1 = floor($panjangKertas / $itemPanjang) * floor($lebarKertas / $itemLebar);
-        $qty2 = floor($lebarKertas / $itemPanjang) * floor($panjangKertas / $itemLebar); // Corrected logic for qty2
+        $qty2 = floor($lebarKertas / $itemPanjang) * floor($panjangKertas / $itemLebar);
         $finalQty = max($qty1, $qty2);
-        
-        return ['qty1' => $qty1, 'qty2' => $qty2, 'final_qty' => $finalQty];
+
+        return ['qty1' => (int)$qty1, 'qty2' => (int)$qty2, 'final_qty' => (int)$finalQty];
     }
 
 
-    // Method untuk menghitung semua dimensions dan quantities
+    // Method untuk menghitung semua dimensi dan kuantitas berdasarkan input form
     protected function calculateAllDimensionsAndQuantities(array $data): array
     {
         $calculations = [];
+        $this->includeBoard = (bool)($data['includeBoard'] ?? false);
+        $this->includeCoverLuar = (bool)($data['includeCoverLuar'] ?? false);
+        $this->includeCoverDalam = (bool)($data['includeCoverDalam'] ?? false);
+        $this->includeCoverLuarLidah = (bool)($data['includeCoverLuarLidah'] ?? false);
+        $this->includeBusa = (bool)($data['includeBusa'] ?? false);
 
-        // Ensure toggles are correctly read from data or livewire properties
-        $this->includeBoard = (bool)($data['includeBoard'] ?? $this->includeBoard);
-        $this->includeCoverLuar = (bool)($data['includeCoverLuar'] ?? $this->includeCoverLuar);
-        $this->includeCoverDalam = (bool)($data['includeCoverDalam'] ?? $this->includeCoverDalam);
-        $this->includeCoverLuarLidah = (bool)($data['includeCoverLuarLidah'] ?? $this->includeCoverLuarLidah);
-        $this->includeBusa = (bool)($data['includeBusa'] ?? $this->includeBusa);
+        $atasPanjang = (float)($data['atas_panjang'] ?? 0);
+        $atasLebar = (float)($data['atas_lebar'] ?? 0);
+        $atasTinggi = (float)($data['atas_tinggi'] ?? 0);
+        $bawahPanjang = (float)($data['bawah_panjang'] ?? 0);
+        $bawahLebar = (float)($data['bawah_lebar'] ?? 0);
+        $bawahTinggi = (float)($data['bawah_tinggi'] ?? 0);
 
         // Board Calculations
         if ($this->includeBoard) {
-            $selectedItemId = $data['selected_item_board'] ?? null;
-            $boardPanjangKertas = 0.0;
-            $boardLebarKertas = 0.0;
+            $item = ProductionItem::find($data['selected_item_board'] ?? null);
+            $sheetPanjang = (float)($item->panjang_kertas ?? 0);
+            $sheetLebar = (float)($item->lebar_kertas ?? 0);
+            $calculations['board_panjang_kertas'] = $sheetPanjang;
+            $calculations['board_lebar_kertas'] = $sheetLebar;
 
-            if ($selectedItemId) {
-                $item = ProductionItem::find($selectedItemId);
-                if ($item) {
-                    $boardPanjangKertas = (float)($item->panjang_kertas ?? 0);
-                    $boardLebarKertas = (float)($item->lebar_kertas ?? 0);
-                }
-            }
-            $calculations['board_panjang_kertas'] = $boardPanjangKertas;
-            $calculations['board_lebar_kertas'] = $boardLebarKertas;
+            $calculations['board_panjang_atas'] = $this->calculateBoardDimension($atasPanjang, $atasLebar, $atasTinggi);
+            $calculations['board_lebar_atas'] = $this->calculateBoardDimension($atasLebar, $atasPanjang, $atasTinggi); // Sisi lebar box jadi input panjang
+            $calculations['board_panjang_bawah'] = $this->calculateBoardDimension($bawahPanjang, $bawahLebar, $bawahTinggi);
+            $calculations['board_lebar_bawah'] = $this->calculateBoardDimension($bawahLebar, $bawahPanjang, $bawahTinggi); // Sisi lebar box jadi input panjang
 
-            $calculations['board_panjang_atas'] = $this->calculateBoard(
-                $data['atas_panjang'] ?? null,
-                $data['atas_lebar'] ?? null,
-                $data['atas_tinggi'] ?? null
-            );
-            $calculations['board_panjang_bawah'] = $this->calculateBoard(
-                $data['bawah_panjang'] ?? null,
-                $data['bawah_lebar'] ?? null,
-                $data['bawah_tinggi'] ?? null
-            );
-            $calculations['board_lebar_atas'] = $this->calculateBoard( // Note: lebar uses same formula as panjang based on provided code
-                $data['atas_lebar'] ?? null,    // panjang argument in calculateBoard
-                $data['atas_panjang'] ?? null,  // lebar argument in calculateBoard (unused by current formula)
-                $data['atas_tinggi'] ?? null   // tinggi argument in calculateBoard
-            );
-            $calculations['board_lebar_bawah'] = $this->calculateBoard(
-                $data['bawah_lebar'] ?? null,
-                $data['bawah_panjang'] ?? null,
-                $data['bawah_tinggi'] ?? null
-            );
+            $qtyAtas = $this->calculateSheetQuantities($calculations['board_panjang_atas'], $calculations['board_lebar_atas'], $sheetPanjang, $sheetLebar);
+            $calculations['qty1_board_atas'] = $qtyAtas['qty1'];
+            $calculations['qty2_board_atas'] = $qtyAtas['qty2'];
+            $calculations['final_qty_board_atas'] = $qtyAtas['final_qty'];
 
-            $board_qty_atas = $this->calculateQuantities(
-                $calculations['board_panjang_atas'],
-                $calculations['board_lebar_atas'],
-                $boardPanjangKertas,
-                $boardLebarKertas
-            );
-            $board_qty_bawah = $this->calculateQuantities(
-                $calculations['board_panjang_bawah'],
-                $calculations['board_lebar_bawah'],
-                $boardPanjangKertas,
-                $boardLebarKertas
-            );
-
-            $calculations['qty1_board_atas'] = $board_qty_atas['qty1'];
-            $calculations['qty2_board_atas'] = $board_qty_atas['qty2'];
-            $calculations['final_qty_board_atas'] = $board_qty_atas['final_qty'];
-            $calculations['qty1_board_bawah'] = $board_qty_bawah['qty1'];
-            $calculations['qty2_board_bawah'] = $board_qty_bawah['qty2'];
-            $calculations['final_qty_board_bawah'] = $board_qty_bawah['final_qty'];
+            $qtyBawah = $this->calculateSheetQuantities($calculations['board_panjang_bawah'], $calculations['board_lebar_bawah'], $sheetPanjang, $sheetLebar);
+            $calculations['qty1_board_bawah'] = $qtyBawah['qty1'];
+            $calculations['qty2_board_bawah'] = $qtyBawah['qty2'];
+            $calculations['final_qty_board_bawah'] = $qtyBawah['final_qty'];
         }
 
-
-        // Cover Luar Calculations
+        // Cover Luar Calculations (ALLOWANCE = 3 + 4 = 7, SESUAIKAN!)
+        $coverLuarAllowance = 7.0; // Misal: 3cm untuk lem, 4cm untuk lipatan. SESUAIKAN!
         if ($this->includeCoverLuar) {
-            $selectedItemId = $data['selected_item_cover_luar'] ?? null;
-            $coverLuarPanjangKertas = 0.0;
-            $coverLuarLebarKertas = 0.0;
+            $item = ProductionItem::find($data['selected_item_cover_luar'] ?? null);
+            $sheetPanjang = (float)($item->panjang_kertas ?? 0);
+            $sheetLebar = (float)($item->lebar_kertas ?? 0);
+            $calculations['cover_luar_panjang_kertas'] = $sheetPanjang;
+            $calculations['cover_luar_lebar_kertas'] = $sheetLebar;
 
-            if ($selectedItemId) {
-                $item = ProductionItem::find($selectedItemId);
-                if ($item) {
-                    $coverLuarPanjangKertas = (float)($item->panjang_kertas ?? 0);
-                    $coverLuarLebarKertas = (float)($item->lebar_kertas ?? 0);
-                }
-            }
-            $calculations['cover_luar_panjang_kertas'] = $coverLuarPanjangKertas;
-            $calculations['cover_luar_lebar_kertas'] = $coverLuarLebarKertas;
+            $calculations['cover_luar_panjang_box_atas'] = $this->calculateCoverDimension($atasPanjang, $atasTinggi, $coverLuarAllowance);
+            $calculations['cover_luar_lebar_box_atas'] = $this->calculateCoverDimension($atasLebar, $atasTinggi, $coverLuarAllowance);
+            $calculations['cover_luar_panjang_box_bawah'] = $this->calculateCoverDimension($bawahPanjang, $bawahTinggi, $coverLuarAllowance);
+            $calculations['cover_luar_lebar_box_bawah'] = $this->calculateCoverDimension($bawahLebar, $bawahTinggi, $coverLuarAllowance);
 
-            $calculations['cover_luar_panjang_box_bawah'] = (2 * ((float)($data['bawah_tinggi'] ?? 0))) + ((float)($data['bawah_panjang'] ?? 0)) + 3 + 4;
-            $calculations['cover_luar_panjang_box_atas'] = (2 * ((float)($data['atas_tinggi'] ?? 0))) + ((float)($data['atas_panjang'] ?? 0)) + 3 + 4;
-            $calculations['cover_luar_lebar_box_bawah'] = (2 * ((float)($data['bawah_tinggi'] ?? 0))) + ((float)($data['bawah_lebar'] ?? 0)) + 3 + 4;
-            $calculations['cover_luar_lebar_box_atas'] = (2 * ((float)($data['atas_tinggi'] ?? 0))) + ((float)($data['atas_lebar'] ?? 0)) + 3 + 4;
+            $qtyAtas = $this->calculateSheetQuantities($calculations['cover_luar_panjang_box_atas'], $calculations['cover_luar_lebar_box_atas'], $sheetPanjang, $sheetLebar);
+            $calculations['qty1_cover_luar_atas'] = $qtyAtas['qty1'];
+            $calculations['qty2_cover_luar_atas'] = $qtyAtas['qty2'];
+            $calculations['final_qty_cover_luar_atas'] = $qtyAtas['final_qty'];
 
-            $cover_luar_qty_atas = $this->calculateQuantities(
-                $calculations['cover_luar_panjang_box_atas'],
-                $calculations['cover_luar_lebar_box_atas'],
-                $coverLuarPanjangKertas,
-                $coverLuarLebarKertas
-            );
-            $cover_luar_qty_bawah = $this->calculateQuantities(
-                $calculations['cover_luar_panjang_box_bawah'],
-                $calculations['cover_luar_lebar_box_bawah'],
-                $coverLuarPanjangKertas,
-                $coverLuarLebarKertas
-            );
-            $calculations['qty1_cover_luar_atas'] = $cover_luar_qty_atas['qty1'];
-            $calculations['qty2_cover_luar_atas'] = $cover_luar_qty_atas['qty2'];
-            $calculations['final_qty_cover_luar_atas'] = $cover_luar_qty_atas['final_qty'];
-            $calculations['qty1_cover_luar_bawah'] = $cover_luar_qty_bawah['qty1'];
-            $calculations['qty2_cover_luar_bawah'] = $cover_luar_qty_bawah['qty2'];
-            $calculations['final_qty_cover_luar_bawah'] = $cover_luar_qty_bawah['final_qty'];
+            $qtyBawah = $this->calculateSheetQuantities($calculations['cover_luar_panjang_box_bawah'], $calculations['cover_luar_lebar_box_bawah'], $sheetPanjang, $sheetLebar);
+            $calculations['qty1_cover_luar_bawah'] = $qtyBawah['qty1'];
+            $calculations['qty2_cover_luar_bawah'] = $qtyBawah['qty2'];
+            $calculations['final_qty_cover_luar_bawah'] = $qtyBawah['final_qty'];
         }
 
-        // Cover Dalam Calculations
+        // Cover Dalam Calculations (ALLOWANCE = 3, SESUAIKAN!)
+        $coverDalamAllowance = 3.0; // Misal: 3cm untuk lem/lipatan. SESUAIKAN!
         if ($this->includeCoverDalam) {
-            $selectedItemId = $data['selected_item_cover_dalam'] ?? null;
-            $coverDalamPanjangKertas = 0.0;
-            $coverDalamLebarKertas = 0.0;
+            $item = ProductionItem::find($data['selected_item_cover_dalam'] ?? null);
+            $sheetPanjang = (float)($item->panjang_kertas ?? 0);
+            $sheetLebar = (float)($item->lebar_kertas ?? 0);
+            $calculations['cover_dalam_panjang_kertas'] = $sheetPanjang;
+            $calculations['cover_dalam_lebar_kertas'] = $sheetLebar;
 
-            if ($selectedItemId) {
-                $item = ProductionItem::find($selectedItemId);
-                if ($item) {
-                    $coverDalamPanjangKertas = (float)($item->panjang_kertas ?? 0);
-                    $coverDalamLebarKertas = (float)($item->lebar_kertas ?? 0);
-                }
-            }
-            $calculations['cover_dalam_panjang_kertas'] = $coverDalamPanjangKertas;
-            $calculations['cover_dalam_lebar_kertas'] = $coverDalamLebarKertas;
+            $calculations['cover_dalam_panjang_box_atas'] = $this->calculateCoverDimension($atasPanjang, $atasTinggi, $coverDalamAllowance);
+            $calculations['cover_dalam_lebar_box_atas'] = $this->calculateCoverDimension($atasLebar, $atasTinggi, $coverDalamAllowance);
+            $calculations['cover_dalam_panjang_box_bawah'] = $this->calculateCoverDimension($bawahPanjang, $bawahTinggi, $coverDalamAllowance);
+            $calculations['cover_dalam_lebar_box_bawah'] = $this->calculateCoverDimension($bawahLebar, $bawahTinggi, $coverDalamAllowance);
 
-            $calculations['cover_dalam_panjang_box_bawah'] = (2 * ((float)($data['bawah_tinggi'] ?? 0))) + ((float)($data['bawah_panjang'] ?? 0)) + 3;
-            $calculations['cover_dalam_panjang_box_atas'] = (2 * ((float)($data['atas_tinggi'] ?? 0))) + ((float)($data['atas_panjang'] ?? 0)) + 3;
-            $calculations['cover_dalam_lebar_box_bawah'] = (2 * ((float)($data['bawah_tinggi'] ?? 0))) + ((float)($data['bawah_lebar'] ?? 0)) + 3;
-            $calculations['cover_dalam_lebar_box_atas'] = (2 * ((float)($data['atas_tinggi'] ?? 0))) + ((float)($data['atas_lebar'] ?? 0)) + 3;
+            $qtyAtas = $this->calculateSheetQuantities($calculations['cover_dalam_panjang_box_atas'], $calculations['cover_dalam_lebar_box_atas'], $sheetPanjang, $sheetLebar);
+            $calculations['qty1_cover_dalam_atas'] = $qtyAtas['qty1'];
+            $calculations['qty2_cover_dalam_atas'] = $qtyAtas['qty2'];
+            $calculations['final_qty_cover_dalam_atas'] = $qtyAtas['final_qty'];
 
-            $cover_dalam_qty_atas = $this->calculateQuantities(
-                $calculations['cover_dalam_panjang_box_atas'],
-                $calculations['cover_dalam_lebar_box_atas'],
-                $coverDalamPanjangKertas,
-                $coverDalamLebarKertas
-            );
-            $cover_dalam_qty_bawah = $this->calculateQuantities(
-                $calculations['cover_dalam_panjang_box_bawah'],
-                $calculations['cover_dalam_lebar_box_bawah'],
-                $coverDalamPanjangKertas,
-                $coverDalamLebarKertas
-            );
-            $calculations['qty1_cover_dalam_atas'] = $cover_dalam_qty_atas['qty1'];
-            $calculations['qty2_cover_dalam_atas'] = $cover_dalam_qty_atas['qty2'];
-            $calculations['final_qty_cover_dalam_atas'] = $cover_dalam_qty_atas['final_qty'];
-            $calculations['qty1_cover_dalam_bawah'] = $cover_dalam_qty_bawah['qty1'];
-            $calculations['qty2_cover_dalam_bawah'] = $cover_dalam_qty_bawah['qty2'];
-            $calculations['final_qty_cover_dalam_bawah'] = $cover_dalam_qty_bawah['final_qty'];
+            $qtyBawah = $this->calculateSheetQuantities($calculations['cover_dalam_panjang_box_bawah'], $calculations['cover_dalam_lebar_box_bawah'], $sheetPanjang, $sheetLebar);
+            $calculations['qty1_cover_dalam_bawah'] = $qtyBawah['qty1'];
+            $calculations['qty2_cover_dalam_bawah'] = $qtyBawah['qty2'];
+            $calculations['final_qty_cover_dalam_bawah'] = $qtyBawah['final_qty'];
         }
-
-        // Cover Luar Lidah Calculations
+        
+        // Cover Luar Lidah Calculations (ALLOWANCE SAMA DENGAN COVER LUAR YAITU 7, SESUAIKAN!)
+        // Asumsi formula dan allowance sama dengan Cover Luar, jika beda, buat fungsi/allowance baru.
+        $coverLuarLidahAllowance = $coverLuarAllowance; // atau nilai spesifik lain
         if ($this->includeCoverLuarLidah) {
-            $selectedItemId = $data['selected_item_cover_luar_lidah'] ?? null;
-            $coverLuarLidahPanjangKertas = 0.0;
-            $coverLuarLidahLebarKertas = 0.0;
+            $item = ProductionItem::find($data['selected_item_cover_luar_lidah'] ?? null);
+            $sheetPanjang = (float)($item->panjang_kertas ?? 0);
+            $sheetLebar = (float)($item->lebar_kertas ?? 0);
+            $calculations['cover_luar_lidah_panjang_kertas'] = $sheetPanjang;
+            $calculations['cover_luar_lidah_lebar_kertas'] = $sheetLebar;
 
-            if ($selectedItemId) {
-                $item = ProductionItem::find($selectedItemId);
-                if ($item) {
-                    $coverLuarLidahPanjangKertas = (float)($item->panjang_kertas ?? 0);
-                    $coverLuarLidahLebarKertas = (float)($item->lebar_kertas ?? 0);
-                }
-            }
-            $calculations['cover_luar_lidah_panjang_kertas'] = $coverLuarLidahPanjangKertas;
-            $calculations['cover_luar_lidah_lebar_kertas'] = $coverLuarLidahLebarKertas;
+            $calculations['cover_luar_lidah_panjang_box_atas'] = $this->calculateCoverDimension($atasPanjang, $atasTinggi, $coverLuarLidahAllowance);
+            $calculations['cover_luar_lidah_lebar_box_atas'] = $this->calculateCoverDimension($atasLebar, $atasTinggi, $coverLuarLidahAllowance);
+            $calculations['cover_luar_lidah_panjang_box_bawah'] = $this->calculateCoverDimension($bawahPanjang, $bawahTinggi, $coverLuarLidahAllowance);
+            $calculations['cover_luar_lidah_lebar_box_bawah'] = $this->calculateCoverDimension($bawahLebar, $bawahTinggi, $coverLuarLidahAllowance);
 
-            $calculations['cover_luar_lidah_panjang_box_bawah'] = (2 * ((float)($data['bawah_tinggi'] ?? 0))) + ((float)($data['bawah_panjang'] ?? 0)) + 3 + 4;
-            $calculations['cover_luar_lidah_panjang_box_atas'] = (2 * ((float)($data['atas_tinggi'] ?? 0))) + ((float)($data['atas_panjang'] ?? 0)) + 3 + 4;
-            $calculations['cover_luar_lidah_lebar_box_bawah'] = (2 * ((float)($data['bawah_tinggi'] ?? 0))) + ((float)($data['bawah_lebar'] ?? 0)) + 3 + 4;
-            $calculations['cover_luar_lidah_lebar_box_atas'] = (2 * ((float)($data['atas_tinggi'] ?? 0))) + ((float)($data['atas_lebar'] ?? 0)) + 3 + 4;
+            $qtyAtas = $this->calculateSheetQuantities($calculations['cover_luar_lidah_panjang_box_atas'], $calculations['cover_luar_lidah_lebar_box_atas'], $sheetPanjang, $sheetLebar);
+            $calculations['qty1_cover_luar_lidah_atas'] = $qtyAtas['qty1'];
+            $calculations['qty2_cover_luar_lidah_atas'] = $qtyAtas['qty2'];
+            $calculations['final_qty_cover_luar_lidah_atas'] = $qtyAtas['final_qty'];
 
-            $cover_luar_lidah_qty_atas = $this->calculateQuantities(
-                $calculations['cover_luar_lidah_panjang_box_atas'],
-                $calculations['cover_luar_lidah_lebar_box_atas'],
-                $coverLuarLidahPanjangKertas,
-                $coverLuarLidahLebarKertas
-            );
-            $cover_luar_lidah_qty_bawah = $this->calculateQuantities(
-                $calculations['cover_luar_lidah_panjang_box_bawah'],
-                $calculations['cover_luar_lidah_lebar_box_bawah'],
-                $coverLuarLidahPanjangKertas,
-                $coverLuarLidahLebarKertas
-            );
-            $calculations['qty1_cover_luar_lidah_atas'] = $cover_luar_lidah_qty_atas['qty1'];
-            $calculations['qty2_cover_luar_lidah_atas'] = $cover_luar_lidah_qty_atas['qty2'];
-            $calculations['final_qty_cover_luar_lidah_atas'] = $cover_luar_lidah_qty_atas['final_qty'];
-            $calculations['qty1_cover_luar_lidah_bawah'] = $cover_luar_lidah_qty_bawah['qty1'];
-            $calculations['qty2_cover_luar_lidah_bawah'] = $cover_luar_lidah_qty_bawah['qty2'];
-            $calculations['final_qty_cover_luar_lidah_bawah'] = $cover_luar_lidah_qty_bawah['final_qty'];
+            $qtyBawah = $this->calculateSheetQuantities($calculations['cover_luar_lidah_panjang_box_bawah'], $calculations['cover_luar_lidah_lebar_box_bawah'], $sheetPanjang, $sheetLebar);
+            $calculations['qty1_cover_luar_lidah_bawah'] = $qtyBawah['qty1'];
+            $calculations['qty2_cover_luar_lidah_bawah'] = $qtyBawah['qty2'];
+            $calculations['final_qty_cover_luar_lidah_bawah'] = $qtyBawah['final_qty'];
         }
 
-
-        // Busa Calculations
+        // Busa Calculations (ALLOWANCE = 3, SESUAIKAN!)
+        // Umumnya busa mengikuti dimensi dalam box bawah.
+        $busaAllowance = 3.0; // Misal: tambahan kelonggaran/ketebalan. SESUAIKAN!
         if ($this->includeBusa) {
-            $selectedItemId = $data['selected_item_busa'] ?? null;
-            $busaPanjangKertas = 0.0; // Note: "Kertas" in name is generic, represents material dimensions
-            $busaLebarKertas = 0.0;
+            $item = ProductionItem::find($data['selected_item_busa'] ?? null);
+            $sheetPanjang = (float)($item->panjang_kertas ?? 0); // Ini dimensi bahan busa per lembar
+            $sheetLebar = (float)($item->lebar_kertas ?? 0);
+            $calculations['busa_panjang_kertas'] = $sheetPanjang;
+            $calculations['busa_lebar_kertas'] = $sheetLebar;
 
-            if ($selectedItemId) {
-                $item = ProductionItem::find($selectedItemId);
-                if ($item) {
-                    $busaPanjangKertas = (float)($item->panjang_kertas ?? 0);
-                    $busaLebarKertas = (float)($item->lebar_kertas ?? 0);
-                }
-            }
-            $calculations['busa_panjang_kertas'] = $busaPanjangKertas;
-            $calculations['busa_lebar_kertas'] = $busaLebarKertas;
+            // Dimensi potongan busa biasanya adalah P Box Bawah + allowance dan L Box Bawah + allowance
+            // Bukan (2*Tinggi)+Panjang. Sesuaikan jika berbeda.
+            $calculations['panjang_busa'] = $this->calculateBusaDimension($bawahPanjang, $busaAllowance);
+            $calculations['lebar_busa'] = $this->calculateBusaDimension($bawahLebar, $busaAllowance); // asumsikan allowance sama
 
-            $calculations['panjang_busa'] = ((float)($data['bawah_panjang'] ?? 0)) + 3;
-            $calculations['lebar_busa'] = ((float)($data['bawah_lebar'] ?? 0)) + 3;
-
-            $busa_qty = $this->calculateQuantities(
-                $calculations['panjang_busa'],
-                $calculations['lebar_busa'],
-                $busaPanjangKertas,
-                $busaLebarKertas
-            );
-            $calculations['qty1_busa'] = $busa_qty['qty1'];
-            $calculations['qty2_busa'] = $busa_qty['qty2'];
-            $calculations['final_qty_busa'] = $busa_qty['final_qty'];
+            $qty = $this->calculateSheetQuantities($calculations['panjang_busa'], $calculations['lebar_busa'], $sheetPanjang, $sheetLebar);
+            $calculations['qty1_busa'] = $qty['qty1'];
+            $calculations['qty2_busa'] = $qty['qty2'];
+            $calculations['final_qty_busa'] = $qty['final_qty'];
         }
 
         return $calculations;
     }
 
-    public function updateBoardCalculations(): void
+    // Fungsi ini dipanggil setiap kali ada perubahan state yang relevan
+    public function updateAllCalculations(): void
     {
-        $data = $this->form->getState();
-        $calculations = $this->calculateAllDimensionsAndQuantities($data);
-        // Ensure existing data isn't lost when filling, especially from other sections
-        $this->form->fill(array_merge($data, $calculations));
+        $currentState = $this->form->getState();
+        $calculatedValues = $this->calculateAllDimensionsAndQuantities($currentState);
+        $this->form->fill(array_merge($currentState, $calculatedValues));
+    }
+
+    // Fungsi untuk membersihkan field terkait jika toggle dimatikan
+    private function clearComponentFields(Set $set, string $componentPrefix, array $fields): void
+    {
+        foreach ($fields as $field) {
+            $set("{$componentPrefix}_{$field}", null); // Untuk item pilihan
+            // Untuk dimensi dan kuantitas
+            foreach (['_atas', '_bawah', ''] as $suffix) { // Mencakup atas, bawah, dan non-suffix (busa)
+                 $set("{$field}{$suffix}", null); // e.g. board_panjang_atas
+                 $set("qty1_{$field}{$suffix}", null); // e.g. qty1_board_atas
+                 $set("qty2_{$field}{$suffix}", null);
+                 $set("final_qty_{$field}{$suffix}", null);
+                 $set("{$field}_kertas", null); // e.g. board_panjang_kertas
+            }
+             // Membersihkan field spesifik busa (panjang_busa, lebar_busa)
+            if ($componentPrefix === 'busa') {
+                $set('panjang_busa', null);
+                $set('lebar_busa', null);
+            }
+        }
+         // Khusus untuk item pilihan
+        $set("selected_item_{$componentPrefix}", null);
+
+        // Membersihkan field dimensi box komponen yang spesifik, jika ada
+        // (Contoh: cover_luar_panjang_box_atas)
+        $dimensionFields = [
+            "{$componentPrefix}_panjang_box_atas", "{$componentPrefix}_lebar_box_atas",
+            "{$componentPrefix}_panjang_box_bawah", "{$componentPrefix}_lebar_box_bawah"
+        ];
+        if ($componentPrefix === 'board') { // board punya nama field berbeda
+             $dimensionFields = [
+                "board_panjang_atas", "board_lebar_atas",
+                "board_panjang_bawah", "board_lebar_bawah"
+            ];
+        }
+
+        foreach($dimensionFields as $dimField) {
+            $set($dimField, null);
+        }
     }
 
 
     public function form(Form $form): Form
     {
-        // Helper function untuk membuat field dimensi
-        $createDimensionField = function (string $name, string $label): TextInput {
+        $dimensionInputSchema = function (string $name, string $label): TextInput {
             return TextInput::make($name)
                 ->label($label)
                 ->numeric()
@@ -357,538 +342,247 @@ class ProductionCalculator extends Page implements HasForms
                 ->minValue(0)
                 ->step(0.1)
                 ->placeholder('0.0')
-                ->live(onBlur: true) // Using onBlur for live to avoid too many updates
-                ->afterStateUpdated(function ($livewire) {
-                    $livewire->updateBoardCalculations();
-                })
+                ->live(onBlur: true)
+                ->afterStateUpdated(fn ($livewire) => $livewire->updateAllCalculations())
                 ->columnSpan(1);
         };
 
-        $createDimensionSection = function (string $title, string $prefix) use ($createDimensionField): Section {
-            return Section::make($title)
-                ->description("Masukkan dimensi {$title} dalam satuan centimeter")
-                ->schema([
-                    $createDimensionField("{$prefix}_panjang", 'Panjang'),
-                    $createDimensionField("{$prefix}_lebar", 'Lebar'),
-                    $createDimensionField("{$prefix}_tinggi", 'Tinggi'),
-                ])
-                ->columns(3)
-                ->collapsible()
-                ->icon('heroicon-o-cube');
+        $dimensionDisplaySchema = function (string $name, string $label, string $suffix = 'cm'): TextInput {
+            return TextInput::make($name)
+                ->label($label)
+                ->disabled()
+                ->suffix($suffix)
+                ->placeholder('Auto');
         };
 
-        // Section statis (informasi produk)
+        $componentToggleSchema = function (string $name, string $label, string $componentPrefix, array $relatedFields) {
+            return Forms\Components\Toggle::make($name)
+                ->label($label)
+                ->live()
+                ->afterStateUpdated(function (Get $get, Set $set, $livewire) use ($name, $componentPrefix, $relatedFields) {
+                    if (!$get($name)) {
+                        $this->clearComponentFields($set, $componentPrefix, $relatedFields);
+                    }
+                    $livewire->updateAllCalculations();
+                });
+        };
+        
+        $componentItemSelectSchema = function(string $name, string $label, string $categoryName, string $visibilityFlag) {
+            return Forms\Components\Select::make($name)
+                ->label($label)
+                ->options(ProductionItem::whereHas('category', fn ($q) => $q->where('name', $categoryName))->pluck('name', 'id'))
+                ->nullable()
+                ->live()
+                ->hidden(fn (Get $get): bool => !$get($visibilityFlag))
+                ->afterStateUpdated(fn ($livewire) => $livewire->updateAllCalculations());
+        };
+
+
+        // Definisi Sections
         $sections = [
-            Forms\Components\Section::make('Informasi Produk')
+            Section::make('Informasi Produk')
                 ->schema([
-                    Forms\Components\TextInput::make('product_name')
-                        ->label('Nama Produk')
-                        ->required()
-                        ->live(onBlur: true)
-                        ->columnSpan(1),
+                    TextInput::make('product_name')->label('Nama Produk')->required()->live(onBlur: true)->columnSpan(1),
+                    Select::make('size')->label('Ukuran Box (Master Cost)')->options(MasterCost::pluck('size', 'size')->toArray())->required()->live()->columnSpan(1),
+                    Select::make('poly_dimension')->label('Dimensi Poly')->options(fn () => PolyCost::all()->pluck('dimension', 'dimension'))->nullable()->live()->columnSpan(1),
+                    Select::make('include_knife_cost')->label('Termasuk Ongkos Pisau')->options(['ada' => 'Ada','tidak_ada' => 'Tidak Ada'])->required()->default('tidak_ada')->columnSpan(1),
+                    TextInput::make('quantity')->label('Jumlah Pesan')->numeric()->default(1)->minValue(1)->required()->live(onBlur: true)
+                        ->afterStateUpdated(fn ($livewire) => $livewire->updateAllCalculations())->columnSpan(1),
+                ])->columns(5),
 
-                    Forms\Components\Select::make('size')
-                        ->label('Ukuran')
-                        ->options(MasterCost::pluck('size', 'size')->toArray())
-                        ->required()
-                        ->live()
-                        ->columnSpan(1),
+            Section::make('Dimensi Box Input')
+                ->description("Masukkan dimensi box dalam satuan centimeter.")
+                ->schema([
+                    Section::make('Dimensi Box Atas')
+                        ->schema([
+                            $dimensionInputSchema('atas_panjang', 'Panjang Atas'),
+                            $dimensionInputSchema('atas_lebar', 'Lebar Atas'),
+                            $dimensionInputSchema('atas_tinggi', 'Tinggi Atas'),
+                        ])->columns(3)->collapsible(),
+                    Section::make('Dimensi Box Bawah')
+                        ->schema([
+                            $dimensionInputSchema('bawah_panjang', 'Panjang Bawah'),
+                            $dimensionInputSchema('bawah_lebar', 'Lebar Bawah'),
+                            $dimensionInputSchema('bawah_tinggi', 'Tinggi Bawah'),
+                        ])->columns(3)->collapsible(),
+                ])->columns(2)->icon('heroicon-o-cube'),
 
-                    Forms\Components\Select::make('poly_dimension')
-                        ->label('Dimensi Poly')
-                        ->options(fn () => PolyCost::all()->pluck('dimension', 'dimension')) // Corrected PolyCost model reference
-                        ->nullable()
-                        ->live()
-                        ->columnSpan(1),
+            Section::make('Pilihan Komponen Material')
+                ->schema([
+                    $componentToggleSchema('includeBoard', 'Sertakan Board', 'board', ['board_panjang', 'board_lebar']), // field dasar
+                    $componentToggleSchema('includeCoverLuar', 'Sertakan Cover Luar', 'cover_luar', ['cover_luar_panjang_box', 'cover_luar_lebar_box']),
+                    $componentToggleSchema('includeCoverDalam', 'Sertakan Cover Dalam', 'cover_dalam', ['cover_dalam_panjang_box', 'cover_dalam_lebar_box']),
+                    $componentToggleSchema('includeCoverLuarLidah', 'Sertakan Cover Luar Lidah', 'cover_luar_lidah', ['cover_luar_lidah_panjang_box', 'cover_luar_lidah_lebar_box']),
+                    $componentToggleSchema('includeBusa', 'Sertakan Busa', 'busa', ['panjang_busa', 'lebar_busa']),
+                    
+                    $componentItemSelectSchema('selected_item_board', 'Pilih Item Board', 'Board', 'includeBoard'),
+                    $componentItemSelectSchema('selected_item_cover_luar', 'Pilih Item Cover Luar', 'Cover Luar', 'includeCoverLuar'),
+                    $componentItemSelectSchema('selected_item_cover_dalam', 'Pilih Item Cover Dalam', 'Cover Dalam', 'includeCoverDalam'),
+                    $componentItemSelectSchema('selected_item_cover_luar_lidah', 'Pilih Item Cover Luar Lidah', 'Cover Luar Lidah', 'includeCoverLuarLidah'),
+                    $componentItemSelectSchema('selected_item_busa', 'Pilih Item Busa', 'Busa', 'includeBusa'),
+                ])->columns(2)->collapsible()->icon('heroicon-o-adjustments-horizontal'),
 
-                    Forms\Components\Select::make('include_knife_cost')
-                        ->label('Termasuk Ongkos Pisau')
-                        ->options([
-                            'ada' => 'Ada',
-                            'tidak_ada' => 'Tidak Ada',
-                        ])
-                        ->required()
-                        ->default('tidak_ada')
-                        ->columnSpan(1),
+            Section::make('Hasil Perhitungan Dimensi Komponen (Potongan Jadi)')
+                ->schema([
+                    Forms\Components\Fieldset::make('Dimensi Board')->columns(2)->hidden(fn (Get $get): bool => !$get('includeBoard'))
+                        ->schema([
+                            $dimensionDisplaySchema('board_panjang_atas', 'Board P Atas'), $dimensionDisplaySchema('board_lebar_atas', 'Board L Atas'),
+                            $dimensionDisplaySchema('board_panjang_bawah', 'Board P Bawah'), $dimensionDisplaySchema('board_lebar_bawah', 'Board L Bawah'),
+                        ]),
+                    Forms\Components\Fieldset::make('Dimensi Cover Luar')->columns(2)->hidden(fn (Get $get): bool => !$get('includeCoverLuar'))
+                        ->schema([
+                            $dimensionDisplaySchema('cover_luar_panjang_box_atas', 'CoverLuar P Atas'), $dimensionDisplaySchema('cover_luar_lebar_box_atas', 'CoverLuar L Atas'),
+                            $dimensionDisplaySchema('cover_luar_panjang_box_bawah', 'CoverLuar P Bawah'), $dimensionDisplaySchema('cover_luar_lebar_box_bawah', 'CoverLuar L Bawah'),
+                        ]),
+                    Forms\Components\Fieldset::make('Dimensi Cover Dalam')->columns(2)->hidden(fn (Get $get): bool => !$get('includeCoverDalam'))
+                         ->schema([
+                            $dimensionDisplaySchema('cover_dalam_panjang_box_atas', 'CoverDalam P Atas'), $dimensionDisplaySchema('cover_dalam_lebar_box_atas', 'CoverDalam L Atas'),
+                            $dimensionDisplaySchema('cover_dalam_panjang_box_bawah', 'CoverDalam P Bawah'), $dimensionDisplaySchema('cover_dalam_lebar_box_bawah', 'CoverDalam L Bawah'),
+                        ]),
+                    Forms\Components\Fieldset::make('Dimensi Cover Luar Lidah')->columns(2)->hidden(fn (Get $get): bool => !$get('includeCoverLuarLidah'))
+                         ->schema([
+                            $dimensionDisplaySchema('cover_luar_lidah_panjang_box_atas', 'CoverLuarLidah P Atas'), $dimensionDisplaySchema('cover_luar_lidah_lebar_box_atas', 'CoverLuarLidah L Atas'),
+                            $dimensionDisplaySchema('cover_luar_lidah_panjang_box_bawah', 'CoverLuarLidah P Bawah'), $dimensionDisplaySchema('cover_luar_lidah_lebar_box_bawah', 'CoverLuarLidah L Bawah'),
+                        ]),
+                    Forms\Components\Fieldset::make('Dimensi Busa')->columns(2)->hidden(fn (Get $get): bool => !$get('includeBusa'))
+                        ->schema([
+                            $dimensionDisplaySchema('panjang_busa', 'Panjang Busa'), $dimensionDisplaySchema('lebar_busa', 'Lebar Busa'),
+                        ]),
+                ])->columns(1)->collapsible()->icon('heroicon-o-clipboard-document-list'),
 
-                    Forms\Components\TextInput::make('quantity')
-                        ->label('Jumlah')
-                        ->numeric()
-                        ->default(1)
-                        ->minValue(1)
-                        ->required()
-                        ->live(onBlur: true)
-                        ->afterStateUpdated(function ($livewire) {
-                            $livewire->updateBoardCalculations();
-                        })
-                        ->columnSpan(1),
-                ])
-                ->columns(5), // Adjusted to 5 for better layout or as per original design
+            Section::make('Hasil Perhitungan Kuantitas dari Bahan')
+                ->schema([
+                    Forms\Components\Fieldset::make('Kuantitas Board')->columns(2)->hidden(fn (Get $get): bool => !$get('includeBoard'))
+                        ->schema([
+                            $dimensionDisplaySchema('board_panjang_kertas', 'P Kertas Board'), $dimensionDisplaySchema('board_lebar_kertas', 'L Kertas Board'),
+                            $dimensionDisplaySchema('qty1_board_atas', 'Qty1 Board Atas', 'pcs'), $dimensionDisplaySchema('qty2_board_atas', 'Qty2 Board Atas', 'pcs'),
+                            $dimensionDisplaySchema('final_qty_board_atas', 'Final Qty Board Atas', 'pcs'),
+                            $dimensionDisplaySchema('qty1_board_bawah', 'Qty1 Board Bawah', 'pcs'), $dimensionDisplaySchema('qty2_board_bawah', 'Qty2 Board Bawah', 'pcs'),
+                            $dimensionDisplaySchema('final_qty_board_bawah', 'Final Qty Board Bawah', 'pcs'),
+                        ]),
+                    Forms\Components\Fieldset::make('Kuantitas Cover Luar')->columns(2)->hidden(fn (Get $get): bool => !$get('includeCoverLuar'))
+                        ->schema([
+                            $dimensionDisplaySchema('cover_luar_panjang_kertas', 'P Kertas CoverLuar'), $dimensionDisplaySchema('cover_luar_lebar_kertas', 'L Kertas CoverLuar'),
+                            $dimensionDisplaySchema('qty1_cover_luar_atas', 'Qty1 CL Atas', 'pcs'), $dimensionDisplaySchema('qty2_cover_luar_atas', 'Qty2 CL Atas', 'pcs'),
+                            $dimensionDisplaySchema('final_qty_cover_luar_atas', 'Final Qty CL Atas', 'pcs'),
+                            $dimensionDisplaySchema('qty1_cover_luar_bawah', 'Qty1 CL Bawah', 'pcs'), $dimensionDisplaySchema('qty2_cover_luar_bawah', 'Qty2 CL Bawah', 'pcs'),
+                            $dimensionDisplaySchema('final_qty_cover_luar_bawah', 'Final Qty CL Bawah', 'pcs'),
+                        ]),
+                     Forms\Components\Fieldset::make('Kuantitas Cover Dalam')->columns(2)->hidden(fn (Get $get): bool => !$get('includeCoverDalam'))
+                        ->schema([
+                            $dimensionDisplaySchema('cover_dalam_panjang_kertas', 'P Kertas CoverDalam'), $dimensionDisplaySchema('cover_dalam_lebar_kertas', 'L Kertas CoverDalam'),
+                            $dimensionDisplaySchema('qty1_cover_dalam_atas', 'Qty1 CD Atas', 'pcs'), $dimensionDisplaySchema('qty2_cover_dalam_atas', 'Qty2 CD Atas', 'pcs'),
+                            $dimensionDisplaySchema('final_qty_cover_dalam_atas', 'Final Qty CD Atas', 'pcs'),
+                            $dimensionDisplaySchema('qty1_cover_dalam_bawah', 'Qty1 CD Bawah', 'pcs'), $dimensionDisplaySchema('qty2_cover_dalam_bawah', 'Qty2 CD Bawah', 'pcs'),
+                            $dimensionDisplaySchema('final_qty_cover_dalam_bawah', 'Final Qty CD Bawah', 'pcs'),
+                        ]),
+                    Forms\Components\Fieldset::make('Kuantitas Cover Luar Lidah')->columns(2)->hidden(fn (Get $get): bool => !$get('includeCoverLuarLidah'))
+                        ->schema([
+                            $dimensionDisplaySchema('cover_luar_lidah_panjang_kertas', 'P Kertas CoverLuarLidah'), $dimensionDisplaySchema('cover_luar_lidah_lebar_kertas', 'L Kertas CoverLuarLidah'),
+                            $dimensionDisplaySchema('qty1_cover_luar_lidah_atas', 'Qty1 CLL Atas', 'pcs'), $dimensionDisplaySchema('qty2_cover_luar_lidah_atas', 'Qty2 CLL Atas', 'pcs'),
+                            $dimensionDisplaySchema('final_qty_cover_luar_lidah_atas', 'Final Qty CLL Atas', 'pcs'),
+                            $dimensionDisplaySchema('qty1_cover_luar_lidah_bawah', 'Qty1 CLL Bawah', 'pcs'), $dimensionDisplaySchema('qty2_cover_luar_lidah_bawah', 'Qty2 CLL Bawah', 'pcs'),
+                            $dimensionDisplaySchema('final_qty_cover_luar_lidah_bawah', 'Final Qty CLL Bawah', 'pcs'),
+                        ]),
+                    Forms\Components\Fieldset::make('Kuantitas Busa')->columns(2)->hidden(fn (Get $get): bool => !$get('includeBusa'))
+                        ->schema([
+                            $dimensionDisplaySchema('busa_panjang_kertas', 'P Material Busa'), $dimensionDisplaySchema('busa_lebar_kertas', 'L Material Busa'),
+                            $dimensionDisplaySchema('qty1_busa', 'Qty1 Busa', 'pcs'), $dimensionDisplaySchema('qty2_busa', 'Qty2 Busa', 'pcs'),
+                            $dimensionDisplaySchema('final_qty_busa', 'Final Qty Busa', 'pcs'),
+                        ]),
+                ])->columns(1)->collapsible()->icon('heroicon-o-view-columns'),
         ];
 
-        // Section Dimensi Box
-        $sections[] = Forms\Components\Grid::make(2)
-            ->schema([
-                $createDimensionSection('Dimensi Box Atas', 'atas')->columnSpan(1),
-                $createDimensionSection('Dimensi Box Bawah', 'bawah')->columnSpan(1),
-            ]);
-
-
-        // Section for Component Toggles and Item Selection
-        $sections[] = Forms\Components\Section::make('Pilihan Komponen')
-            ->schema([
-                Forms\Components\Toggle::make('includeBoard')
-                    ->label('Sertakan Board')
-                    ->live()
-                    ->afterStateUpdated(function ($livewire, Forms\Set $set, Forms\Get $get) {
-                        if (!$get('includeBoard')) { // Clear related fields if unchecked
-                            $fieldsToClear = ['selected_item_board', 'board_panjang_atas', 'board_lebar_atas', 'board_panjang_bawah', 'board_lebar_bawah', 'board_panjang_kertas', 'board_lebar_kertas', 'qty1_board_atas', 'qty2_board_atas', 'final_qty_board_atas', 'qty1_board_bawah', 'qty2_board_bawah', 'final_qty_board_bawah'];
-                            foreach ($fieldsToClear as $field) $set($field, null);
-                        }
-                        $livewire->updateBoardCalculations();
-                    }),
-                Forms\Components\Toggle::make('includeCoverLuar')
-                    ->label('Sertakan Cover Luar')
-                    ->live()
-                    ->afterStateUpdated(function ($livewire, Forms\Set $set, Forms\Get $get) {
-                         if (!$get('includeCoverLuar')) {
-                            $fieldsToClear = ['selected_item_cover_luar', 'cover_luar_panjang_box_atas', 'cover_luar_lebar_box_atas', 'cover_luar_panjang_box_bawah', 'cover_luar_lebar_box_bawah', 'cover_luar_panjang_kertas', 'cover_luar_lebar_kertas', 'qty1_cover_luar_atas', 'qty2_cover_luar_atas', 'final_qty_cover_luar_atas', 'qty1_cover_luar_bawah', 'qty2_cover_luar_bawah', 'final_qty_cover_luar_bawah'];
-                            foreach ($fieldsToClear as $field) $set($field, null);
-                        }
-                        $livewire->updateBoardCalculations();
-                    }),
-                Forms\Components\Toggle::make('includeCoverDalam')
-                    ->label('Sertakan Cover Dalam')
-                    ->live()
-                    ->afterStateUpdated(function ($livewire, Forms\Set $set, Forms\Get $get) {
-                        if (!$get('includeCoverDalam')) {
-                            $fieldsToClear = ['selected_item_cover_dalam', 'cover_dalam_panjang_box_atas', 'cover_dalam_lebar_box_atas', 'cover_dalam_panjang_box_bawah', 'cover_dalam_lebar_box_bawah', 'cover_dalam_panjang_kertas', 'cover_dalam_lebar_kertas', 'qty1_cover_dalam_atas', 'qty2_cover_dalam_atas', 'final_qty_cover_dalam_atas', 'qty1_cover_dalam_bawah', 'qty2_cover_dalam_bawah', 'final_qty_cover_dalam_bawah'];
-                            foreach ($fieldsToClear as $field) $set($field, null);
-                        }
-                        $livewire->updateBoardCalculations();
-                    }),
-                Forms\Components\Toggle::make('includeCoverLuarLidah')
-                    ->label('Sertakan Cover Luar Lidah')
-                    ->live()
-                    ->afterStateUpdated(function ($livewire, Forms\Set $set, Forms\Get $get) {
-                        if (!$get('includeCoverLuarLidah')) {
-                            $fieldsToClear = ['selected_item_cover_luar_lidah', 'cover_luar_lidah_panjang_box_atas', 'cover_luar_lidah_lebar_box_atas', 'cover_luar_lidah_panjang_box_bawah', 'cover_luar_lidah_lebar_box_bawah', 'cover_luar_lidah_panjang_kertas', 'cover_luar_lidah_lebar_kertas', 'qty1_cover_luar_lidah_atas', 'qty2_cover_luar_lidah_atas', 'final_qty_cover_luar_lidah_atas', 'qty1_cover_luar_lidah_bawah', 'qty2_cover_luar_lidah_bawah', 'final_qty_cover_luar_lidah_bawah'];
-                            foreach ($fieldsToClear as $field) $set($field, null);
-                        }
-                        $livewire->updateBoardCalculations();
-                    }),
-                Forms\Components\Toggle::make('includeBusa')
-                    ->label('Sertakan Busa')
-                    ->live()
-                    ->afterStateUpdated(function ($livewire, Forms\Set $set, Forms\Get $get) {
-                        if (!$get('includeBusa')) {
-                            $fieldsToClear = ['selected_item_busa', 'panjang_busa', 'lebar_busa', 'busa_panjang_kertas', 'busa_lebar_kertas', 'qty1_busa', 'qty2_busa', 'final_qty_busa'];
-                            foreach ($fieldsToClear as $field) $set($field, null);
-                        }
-                        $livewire->updateBoardCalculations();
-                    }),
-
-                // Conditional Selects for each component type
-                Forms\Components\Select::make('selected_item_board')
-                    ->label('Pilih Item Board')
-                    ->options(ProductionItem::whereHas('category', fn ($q) => $q->where('name', 'Board'))->pluck('name', 'id'))
-                    ->nullable()
-                    ->live()
-                    ->hidden(fn (Forms\Get $get): bool => !$get('includeBoard'))
-                    ->afterStateUpdated(fn ($livewire) => $livewire->updateBoardCalculations()),
-
-                Forms\Components\Select::make('selected_item_cover_luar')
-                    ->label('Pilih Item Cover Luar')
-                    ->options(ProductionItem::whereHas('category', fn ($q) => $q->where('name', 'Cover Luar'))->pluck('name', 'id'))
-                    ->nullable()
-                    ->live()
-                    ->hidden(fn (Forms\Get $get): bool => !$get('includeCoverLuar'))
-                    ->afterStateUpdated(fn ($livewire) => $livewire->updateBoardCalculations()),
-
-                Forms\Components\Select::make('selected_item_cover_dalam')
-                    ->label('Pilih Item Cover Dalam')
-                    ->options(ProductionItem::whereHas('category', fn ($q) => $q->where('name', 'Cover Dalam'))->pluck('name', 'id'))
-                    ->nullable()
-                    ->live()
-                    ->hidden(fn (Forms\Get $get): bool => !$get('includeCoverDalam'))
-                    ->afterStateUpdated(fn ($livewire) => $livewire->updateBoardCalculations()),
-
-                Forms\Components\Select::make('selected_item_cover_luar_lidah')
-                    ->label('Pilih Item Cover Luar Lidah')
-                    ->options(ProductionItem::whereHas('category', fn ($q) => $q->where('name', 'Cover Luar Lidah'))->pluck('name', 'id'))
-                    ->nullable()
-                    ->live()
-                    ->hidden(fn (Forms\Get $get): bool => !$get('includeCoverLuarLidah'))
-                    ->afterStateUpdated(fn ($livewire) => $livewire->updateBoardCalculations()),
-
-                Forms\Components\Select::make('selected_item_busa')
-                    ->label('Pilih Item Busa')
-                    ->options(ProductionItem::whereHas('category', fn ($q) => $q->where('name', 'Busa'))->pluck('name', 'id'))
-                    ->nullable()
-                    ->live()
-                    ->hidden(fn (Forms\Get $get): bool => !$get('includeBusa'))
-                    ->afterStateUpdated(fn ($livewire) => $livewire->updateBoardCalculations()),
-            ])
-            ->columns(2) // Toggles on one side, Selects on the other if more space needed, or adjust as per design
-            ->collapsible()
-            ->icon('heroicon-o-adjustments-horizontal');
-
-
-        // Section Hasil Perhitungan Dimensi Komponen
-        $sections[] = Forms\Components\Section::make('Hasil Perhitungan Dimensi Komponen')
-            ->schema([
-                Forms\Components\Fieldset::make('Dimensi Board')
-                    ->schema([
-                        Forms\Components\TextInput::make('board_panjang_atas')
-                            ->label('Board Panjang Atas')
-                            ->disabled()
-                            ->suffix('cm')
-                            ->placeholder('Akan dihitung otomatis'),
-                        Forms\Components\TextInput::make('board_lebar_atas')
-                            ->label('Board Lebar Atas')
-                            ->disabled()
-                            ->suffix('cm')
-                            ->placeholder('Akan dihitung otomatis'),
-                        Forms\Components\TextInput::make('board_panjang_bawah')
-                            ->label('Board Panjang Bawah')
-                            ->disabled()
-                            ->suffix('cm')
-                            ->placeholder('Akan dihitung otomatis'),
-                        Forms\Components\TextInput::make('board_lebar_bawah')
-                            ->label('Board Lebar Bawah')
-                            ->disabled()
-                            ->suffix('cm')
-                            ->placeholder('Akan dihitung otomatis'),
-                    ])
-                    ->columns(2)
-                    ->hidden(fn (Forms\Get $get): bool => !$get('includeBoard')),
-
-                Forms\Components\Fieldset::make('Dimensi Cover Luar')
-                    ->schema([
-                        Forms\Components\TextInput::make('cover_luar_panjang_box_atas')
-                            ->label('Cover Luar Panjang Atas')
-                            ->disabled()
-                            ->suffix('cm')
-                            ->placeholder('Akan dihitung otomatis'),
-                        Forms\Components\TextInput::make('cover_luar_lebar_box_atas')
-                            ->label('Cover Luar Lebar Atas')
-                            ->disabled()
-                            ->suffix('cm')
-                            ->placeholder('Akan dihitung otomatis'),
-                        Forms\Components\TextInput::make('cover_luar_panjang_box_bawah')
-                            ->label('Cover Luar Panjang Bawah')
-                            ->disabled()
-                            ->suffix('cm')
-                            ->placeholder('Akan dihitung otomatis'),
-                        Forms\Components\TextInput::make('cover_luar_lebar_box_bawah')
-                            ->label('Cover Luar Lebar Bawah')
-                            ->disabled()
-                            ->suffix('cm')
-                            ->placeholder('Akan dihitung otomatis'),
-                    ])
-                    ->columns(2)
-                    ->hidden(fn (Forms\Get $get): bool => !$get('includeCoverLuar')),
-                
-                Forms\Components\Fieldset::make('Dimensi Cover Dalam')
-                    ->schema([
-                        Forms\Components\TextInput::make('cover_dalam_panjang_box_atas')
-                            ->label('Cover Dalam Panjang Atas')
-                            ->disabled()
-                            ->suffix('cm')
-                            ->placeholder('Akan dihitung otomatis'),
-                        Forms\Components\TextInput::make('cover_dalam_lebar_box_atas')
-                            ->label('Cover Dalam Lebar Atas')
-                            ->disabled()
-                            ->suffix('cm')
-                            ->placeholder('Akan dihitung otomatis'),
-                        Forms\Components\TextInput::make('cover_dalam_panjang_box_bawah')
-                            ->label('Cover Dalam Panjang Bawah')
-                            ->disabled()
-                            ->suffix('cm')
-                            ->placeholder('Akan dihitung otomatis'),
-                        Forms\Components\TextInput::make('cover_dalam_lebar_box_bawah')
-                            ->label('Cover Dalam Lebar Bawah')
-                            ->disabled()
-                            ->suffix('cm')
-                            ->placeholder('Akan dihitung otomatis'),
-                    ])
-                    ->columns(2)
-                    ->hidden(fn (Forms\Get $get): bool => !$get('includeCoverDalam')),
-
-                Forms\Components\Fieldset::make('Dimensi Cover Luar Lidah')
-                    ->schema([
-                        Forms\Components\TextInput::make('cover_luar_lidah_panjang_box_atas')
-                            ->label('Cover Luar Lidah Panjang Atas')
-                            ->disabled()
-                            ->suffix('cm')
-                            ->placeholder('Akan dihitung otomatis'),
-                        Forms\Components\TextInput::make('cover_luar_lidah_lebar_box_atas')
-                            ->label('Cover Luar Lidah Lebar Atas')
-                            ->disabled()
-                            ->suffix('cm')
-                            ->placeholder('Akan dihitung otomatis'),
-                        Forms\Components\TextInput::make('cover_luar_lidah_panjang_box_bawah')
-                            ->label('Cover Luar Lidah Panjang Bawah')
-                            ->disabled()
-                            ->suffix('cm')
-                            ->placeholder('Akan dihitung otomatis'),
-                        Forms\Components\TextInput::make('cover_luar_lidah_lebar_box_bawah')
-                            ->label('Cover Luar Lidah Lebar Bawah')
-                            ->disabled()
-                            ->suffix('cm')
-                            ->placeholder('Akan dihitung otomatis'),
-                    ])
-                    ->columns(2)
-                    ->hidden(fn (Forms\Get $get): bool => !$get('includeCoverLuarLidah')),
-
-                Forms\Components\Fieldset::make('Dimensi Busa')
-                    ->schema([
-                        Forms\Components\TextInput::make('panjang_busa')
-                            ->label('Panjang Busa')
-                            ->disabled()
-                            ->suffix('cm')
-                            ->placeholder('Akan dihitung otomatis'),
-                        Forms\Components\TextInput::make('lebar_busa')
-                            ->label('Lebar Busa')
-                            ->disabled()
-                            ->suffix('cm')
-                            ->placeholder('Akan dihitung otomatis'),
-                    ])
-                    ->columns(2)
-                    ->hidden(fn (Forms\Get $get): bool => !$get('includeBusa')),
-            ])
-            ->columns(1) // Each fieldset will take full width, then its internal columns(2) will apply
-            ->collapsible()
-            ->icon('heroicon-o-clipboard-document-list');
-
-
-        // New Section for Quantity Calculations with specific paper dimensions
-        // This is where your snippet left off.
-        $sections[] = Forms\Components\Section::make('Hasil Perhitungan Kuantitas')
-            ->schema([
-                // Kuantitas Board Fieldset
-                Forms\Components\Fieldset::make('Kuantitas Board')
-                    ->schema([
-                        Forms\Components\TextInput::make('board_panjang_kertas')
-                            ->label('Panjang Kertas (Board)')
-                            ->disabled()
-                            ->suffix('cm')
-                            ->placeholder('Akan diisi otomatis'),
-                        Forms\Components\TextInput::make('board_lebar_kertas')
-                            ->label('Lebar Kertas (Board)')
-                            ->disabled()
-                            ->suffix('cm')
-                            ->placeholder('Akan diisi otomatis'),
-                        Forms\Components\TextInput::make('qty1_board_atas')
-                            ->label('Qty 1 Board Atas')
-                            ->disabled()
-                            ->suffix('pcs')
-                            ->placeholder('Akan dihitung otomatis'),
-                        Forms\Components\TextInput::make('qty2_board_atas')
-                            ->label('Qty 2 Board Atas')
-                            ->disabled()
-                            ->suffix('pcs')
-                            ->placeholder('Akan dihitung otomatis'),
-                        Forms\Components\TextInput::make('final_qty_board_atas')
-                            ->label('Final Qty Board Atas')
-                            ->disabled()
-                            ->suffix('pcs')
-                            ->placeholder('Akan dihitung otomatis'),
-                        Forms\Components\TextInput::make('qty1_board_bawah')
-                            ->label('Qty 1 Board Bawah')
-                            ->disabled()
-                            ->suffix('pcs')
-                            ->placeholder('Akan dihitung otomatis'),
-                        Forms\Components\TextInput::make('qty2_board_bawah')
-                            ->label('Qty 2 Board Bawah')
-                            ->disabled()
-                            ->suffix('pcs')
-                            ->placeholder('Akan dihitung otomatis'), // This was the last line in your snippet
-                        Forms\Components\TextInput::make('final_qty_board_bawah') // Added missing field
-                            ->label('Final Qty Board Bawah')
-                            ->disabled()
-                            ->suffix('pcs')
-                            ->placeholder('Akan dihitung otomatis'),
-                    ])
-                    ->columns(2)
-                    ->hidden(fn (Forms\Get $get): bool => !$get('includeBoard')),
-
-                // Kuantitas Cover Luar Fieldset
-                Forms\Components\Fieldset::make('Kuantitas Cover Luar')
-                    ->schema([
-                        Forms\Components\TextInput::make('cover_luar_panjang_kertas')
-                            ->label('Panjang Kertas (Cover Luar)')
-                            ->disabled()->suffix('cm')->placeholder('Akan diisi otomatis'),
-                        Forms\Components\TextInput::make('cover_luar_lebar_kertas')
-                            ->label('Lebar Kertas (Cover Luar)')
-                            ->disabled()->suffix('cm')->placeholder('Akan diisi otomatis'),
-                        Forms\Components\TextInput::make('qty1_cover_luar_atas')
-                            ->label('Qty 1 Cover Luar Atas')
-                            ->disabled()->suffix('pcs')->placeholder('Akan dihitung otomatis'),
-                        Forms\Components\TextInput::make('qty2_cover_luar_atas')
-                            ->label('Qty 2 Cover Luar Atas')
-                            ->disabled()->suffix('pcs')->placeholder('Akan dihitung otomatis'),
-                        Forms\Components\TextInput::make('final_qty_cover_luar_atas')
-                            ->label('Final Qty Cover Luar Atas')
-                            ->disabled()->suffix('pcs')->placeholder('Akan dihitung otomatis'),
-                        Forms\Components\TextInput::make('qty1_cover_luar_bawah')
-                            ->label('Qty 1 Cover Luar Bawah')
-                            ->disabled()->suffix('pcs')->placeholder('Akan dihitung otomatis'),
-                        Forms\Components\TextInput::make('qty2_cover_luar_bawah')
-                            ->label('Qty 2 Cover Luar Bawah')
-                            ->disabled()->suffix('pcs')->placeholder('Akan dihitung otomatis'),
-                        Forms\Components\TextInput::make('final_qty_cover_luar_bawah')
-                            ->label('Final Qty Cover Luar Bawah')
-                            ->disabled()->suffix('pcs')->placeholder('Akan dihitung otomatis'),
-                    ])
-                    ->columns(2)
-                    ->hidden(fn (Forms\Get $get): bool => !$get('includeCoverLuar')),
-
-                // Kuantitas Cover Dalam Fieldset
-                Forms\Components\Fieldset::make('Kuantitas Cover Dalam')
-                    ->schema([
-                        Forms\Components\TextInput::make('cover_dalam_panjang_kertas')
-                            ->label('Panjang Kertas (Cover Dalam)')
-                            ->disabled()->suffix('cm')->placeholder('Akan diisi otomatis'),
-                        Forms\Components\TextInput::make('cover_dalam_lebar_kertas')
-                            ->label('Lebar Kertas (Cover Dalam)')
-                            ->disabled()->suffix('cm')->placeholder('Akan diisi otomatis'),
-                        Forms\Components\TextInput::make('qty1_cover_dalam_atas')
-                            ->label('Qty 1 Cover Dalam Atas')
-                            ->disabled()->suffix('pcs')->placeholder('Akan dihitung otomatis'),
-                        Forms\Components\TextInput::make('qty2_cover_dalam_atas')
-                            ->label('Qty 2 Cover Dalam Atas')
-                            ->disabled()->suffix('pcs')->placeholder('Akan dihitung otomatis'),
-                        Forms\Components\TextInput::make('final_qty_cover_dalam_atas')
-                            ->label('Final Qty Cover Dalam Atas')
-                            ->disabled()->suffix('pcs')->placeholder('Akan dihitung otomatis'),
-                        Forms\Components\TextInput::make('qty1_cover_dalam_bawah')
-                            ->label('Qty 1 Cover Dalam Bawah')
-                            ->disabled()->suffix('pcs')->placeholder('Akan dihitung otomatis'),
-                        Forms\Components\TextInput::make('qty2_cover_dalam_bawah')
-                            ->label('Qty 2 Cover Dalam Bawah')
-                            ->disabled()->suffix('pcs')->placeholder('Akan dihitung otomatis'),
-                        Forms\Components\TextInput::make('final_qty_cover_dalam_bawah')
-                            ->label('Final Qty Cover Dalam Bawah')
-                            ->disabled()->suffix('pcs')->placeholder('Akan dihitung otomatis'),
-                    ])
-                    ->columns(2)
-                    ->hidden(fn (Forms\Get $get): bool => !$get('includeCoverDalam')),
-
-                // Kuantitas Cover Luar Lidah Fieldset
-                Forms\Components\Fieldset::make('Kuantitas Cover Luar Lidah')
-                    ->schema([
-                        Forms\Components\TextInput::make('cover_luar_lidah_panjang_kertas')
-                            ->label('Panjang Kertas (Cover Luar Lidah)')
-                            ->disabled()->suffix('cm')->placeholder('Akan diisi otomatis'),
-                        Forms\Components\TextInput::make('cover_luar_lidah_lebar_kertas')
-                            ->label('Lebar Kertas (Cover Luar Lidah)')
-                            ->disabled()->suffix('cm')->placeholder('Akan diisi otomatis'),
-                        Forms\Components\TextInput::make('qty1_cover_luar_lidah_atas')
-                            ->label('Qty 1 Cover Luar Lidah Atas')
-                            ->disabled()->suffix('pcs')->placeholder('Akan dihitung otomatis'),
-                        Forms\Components\TextInput::make('qty2_cover_luar_lidah_atas')
-                            ->label('Qty 2 Cover Luar Lidah Atas')
-                            ->disabled()->suffix('pcs')->placeholder('Akan dihitung otomatis'),
-                        Forms\Components\TextInput::make('final_qty_cover_luar_lidah_atas')
-                            ->label('Final Qty Cover Luar Lidah Atas')
-                            ->disabled()->suffix('pcs')->placeholder('Akan dihitung otomatis'),
-                        Forms\Components\TextInput::make('qty1_cover_luar_lidah_bawah')
-                            ->label('Qty 1 Cover Luar Lidah Bawah')
-                            ->disabled()->suffix('pcs')->placeholder('Akan dihitung otomatis'),
-                        Forms\Components\TextInput::make('qty2_cover_luar_lidah_bawah')
-                            ->label('Qty 2 Cover Luar Lidah Bawah')
-                            ->disabled()->suffix('pcs')->placeholder('Akan dihitung otomatis'),
-                        Forms\Components\TextInput::make('final_qty_cover_luar_lidah_bawah')
-                            ->label('Final Qty Cover Luar Lidah Bawah')
-                            ->disabled()->suffix('pcs')->placeholder('Akan dihitung otomatis'),
-                    ])
-                    ->columns(2)
-                    ->hidden(fn (Forms\Get $get): bool => !$get('includeCoverLuarLidah')),
-
-                // Kuantitas Busa Fieldset
-                Forms\Components\Fieldset::make('Kuantitas Busa')
-                    ->schema([
-                        Forms\Components\TextInput::make('busa_panjang_kertas') // 'kertas' here refers to the raw material sheet
-                            ->label('Panjang Material (Busa)')
-                            ->disabled()->suffix('cm')->placeholder('Akan diisi otomatis'),
-                        Forms\Components\TextInput::make('busa_lebar_kertas')
-                            ->label('Lebar Material (Busa)')
-                            ->disabled()->suffix('cm')->placeholder('Akan diisi otomatis'),
-                        Forms\Components\TextInput::make('qty1_busa')
-                            ->label('Qty 1 Busa')
-                            ->disabled()->suffix('pcs')->placeholder('Akan dihitung otomatis'),
-                        Forms\Components\TextInput::make('qty2_busa')
-                            ->label('Qty 2 Busa')
-                            ->disabled()->suffix('pcs')->placeholder('Akan dihitung otomatis'),
-                        Forms\Components\TextInput::make('final_qty_busa')
-                            ->label('Final Qty Busa')
-                            ->disabled()->suffix('pcs')->placeholder('Akan dihitung otomatis'),
-                    ])
-                    ->columns(2) // Will result in 3 rows, one field might be alone or adjust to columns(1) for 5 rows
-                    ->hidden(fn (Forms\Get $get): bool => !$get('includeBusa')),
-            ])
-            ->columns(1) // Each fieldset takes full width, then its internal columns(2) applies
-            ->collapsible()
-            ->icon('heroicon-o-view-columns'); // Changed icon for variety, use what fits best
-
-
-        return $form
-            ->schema($sections)
-            ->statePath('data');
+        return $form->schema($sections)->statePath('data');
     }
 
-    // Placeholder for the actual calculation logic that uses the quantities and prices
-    public function calculate(): void
+    // --- Tombol Aksi ---
+    // Anda perlu menambahkan bagian ini di file blade view Anda, misalnya:
+    // <div class="flex justify-end space-x-2">
+    //     <x-filament::button wire:click="calculateFinalPrice">Hitung Harga Total</x-filament::button>
+    //     <x-filament::button wire:click="saveFullCalculation" color="primary">Simpan Kalkulasi</x-filament::button>
+    // </div>
+    // Dan jika ada $calculationResult: {{ $calculationResult }}
+
+    public function calculateFinalPrice(): void
     {
         $data = $this->form->getState();
-        // Perform final cost calculation based on $data, selected items, quantities, etc.
-        // This will involve fetching prices for selected items, applying logic from MasterCost, PolyCost etc.
-        // For example:
-        // $totalCost = 0;
-        // $quantity = (int)($data['quantity'] ?? 1);
+        $calculatedDimensions = $this->calculateAllDimensionsAndQuantities($data); // Dapatkan semua hasil hitungan
+        $allData = array_merge($data, $calculatedDimensions); // Gabungkan input & hasil hitungan
 
-        // if ($data['includeBoard'] && isset($data['selected_item_board'])) {
-        //     $item = ProductionItem::find($data['selected_item_board']);
-        //     if ($item) {
-        //          $pricePerUnitMaterialAtas = $this->getItemPriceByQuantity($item, $quantity);
-        //          $finalQtyAtas = $data['final_qty_board_atas'] ?? 0;
-        //          if ($finalQtyAtas > 0) {
-        //             $totalCost += ($pricePerUnitMaterialAtas / $finalQtyAtas) * $quantity;
-        //          }
-        //          // Add logic for bawah part, etc.
-        //     }
-        // }
-        // ... and so on for other components ...
+        // --- MULAI LOGIKA PERHITUNGAN HARGA TOTAL ---
+        // Ini adalah contoh yang sangat SANGAT disederhanakan.
+        // Anda HARUS membangun logika ini sesuai dengan cara Anda menghitung harga.
+        $totalCost = 0;
+        $quantity = (int)($allData['quantity'] ?? 1);
 
-        // $masterCost = MasterCost::where('size', $data['size'])->first();
-        // if ($masterCost) {
-        //    $totalCost += $masterCost->cost_per_unit; // Or other logic
-        // }
-        // if ($data['poly_dimension']) {
-        //    $polyCost = PolyCost::where('dimension', $data['poly_dimension'])->first();
-        //    if ($polyCost) {
-        //       $totalCost += $polyCost->cost;
-        //    }
-        // }
+        // 1. Biaya Material (Board, Cover, Busa, dll.)
+        // Contoh untuk Board Atas
+        if ($allData['includeBoard'] ?? false) {
+            $itemBoard = ProductionItem::find($allData['selected_item_board'] ?? null);
+            if ($itemBoard && ($allData['final_qty_board_atas'] ?? 0) > 0) {
+                $pricePerSheet = $this->getItemPriceByQuantity($itemBoard, $quantity); // Harga per lembar bahan board
+                $sheetsNeededForAtas = ceil($quantity / $allData['final_qty_board_atas']);
+                $totalCost += $sheetsNeededForAtas * $pricePerSheet;
+            }
+            if ($itemBoard && ($allData['final_qty_board_bawah'] ?? 0) > 0) {
+                 $pricePerSheet = $this->getItemPriceByQuantity($itemBoard, $quantity);
+                 $sheetsNeededForBawah = ceil($quantity / $allData['final_qty_board_bawah']);
+                 $totalCost += $sheetsNeededForBawah * $pricePerSheet; // Ini mungkin perlu disatukan dengan atas jika bahan sama
+            }
+            // Tambahkan logika serupa untuk Cover Luar, Cover Dalam, Lidah, Busa
+            // PERHATIKAN: Jika item sama (misal board atas & bawah pakai item yg sama), optimalkan pengambilan harga.
+        }
+        
+        // 2. Biaya Master (berdasarkan ukuran)
+        $masterCostData = MasterCost::where('size', $allData['size'] ?? '')->first();
+        if ($masterCostData) {
+            // Asumsi master_cost adalah per pcs produk jadi
+            $totalCost += (float)($masterCostData->cost_per_unit ?? 0) * $quantity; 
+        }
 
-        // This is highly dependent on your specific pricing rules.
-        // $this->calculationResult = $totalCost; // Store or display the result
+        // 3. Biaya Poly (jika ada)
+        if ($allData['poly_dimension'] ?? false) {
+            $polyCostData = PolyCost::where('dimension', $allData['poly_dimension'])->first();
+            if ($polyCostData) {
+                // Asumsi poly_cost adalah per pcs produk jadi atau per batch
+                $totalCost += (float)($polyCostData->cost ?? 0) * $quantity; // Atau logika lain
+            }
+        }
+
+        // 4. Ongkos Pisau (jika ada)
+        if (($allData['include_knife_cost'] ?? 'tidak_ada') === 'ada') {
+            // Tambahkan logika biaya pisau. Bisa jadi fixed, atau tergantung kompleksitas.
+            // $totalCost += ONGKOS_PISAU_ANDA;
+        }
+
+        // 5. Biaya Lain-lain, Overhead, Profit Margin, dll.
+        // $totalCost = $totalCost * FAKTOR_OVERHEAD_PROFIT;
+
+        // --- AKHIR LOGIKA PERHITUNGAN HARGA TOTAL ---
+
+        $this->calculationResult = "Rp " . number_format($totalCost, 2, ',', '.'); // Simpan hasil untuk ditampilkan
 
         Notification::make()
-            ->title('Perhitungan Harga Selesai (Logika Belum Diimplementasikan Sepenuhnya)')
+            ->title('Harga Total Dihitung (Contoh)')
+            ->body($this->calculationResult . ' - Pastikan logika harga sudah sesuai!')
             ->success()
             ->send();
     }
 
-    // Placeholder for saving the calculation
-    public function saveCalculation(): void
+    public function saveFullCalculation(): void
     {
-        $data = $this->form->getState();
-        // Logic to save $data and $this->calculationResult to PriceCalculation model or similar
-        // PriceCalculation::create([...]);
+        $dataToSave = $this->form->getState();
+        // Tambahkan juga hasil kalkulasi dimensi & kuantitas jika perlu disimpan
+        $calculatedDimensions = $this->calculateAllDimensionsAndQuantities($dataToSave);
+        $allDataToSave = array_merge($dataToSave, $calculatedDimensions);
+        $allDataToSave['total_price_estimate'] = $this->calculationResult; // Simpan juga estimasi harga
+
+        // Logika penyimpanan ke database, misal ke model PriceCalculation
+        // PriceCalculation::create($allDataToSave);
+
         Notification::make()
-            ->title('Kalkulasi Disimpan (Logika Belum Diimplementasikan)')
+            ->title('Kalkulasi Disimpan (Implementasi Database Diperlukan)')
             ->success()
             ->send();
     }
