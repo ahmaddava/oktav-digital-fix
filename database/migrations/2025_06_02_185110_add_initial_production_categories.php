@@ -16,7 +16,6 @@ return new class extends Migration
         ProductionCategory::firstOrCreate(['name' => 'Board'], ['is_active' => true]);
         ProductionCategory::firstOrCreate(['name' => 'Cover Luar'], ['is_active' => true]);
         ProductionCategory::firstOrCreate(['name' => 'Cover Dalam'], ['is_active' => true]);
-        ProductionCategory::firstOrCreate(['name' => 'Cover Luar Lidah'], ['is_active' => true]);
         ProductionCategory::firstOrCreate(['name' => 'Busa'], ['is_active' => true]);
         // Tambahkan kategori lain yang Anda butuhkan di sini
     }
