@@ -38,11 +38,11 @@ return new class extends Migration
         Schema::create('price_calculations', function (Blueprint $table) {
             $table->id();
             $table->string('product_name');
-            $table->string('box_type_selection'); // <<<--- Kolom baru untuk Jenis Box Utama
+            $table->string('box_type_selection'); // Kolom untuk Jenis Box Utama
             $table->integer('quantity')->nullable();
             $table->string('include_knife_cost')->nullable();
             
-            // Input Dimensi (sudah ada dan OK)
+            // Input Dimensi
             $table->float('atas_panjang', 8, 2)->nullable();
             $table->float('atas_lebar', 8, 2)->nullable();
             $table->float('atas_tinggi', 8, 2)->nullable();
@@ -53,29 +53,38 @@ return new class extends Migration
             // Item yang dipilih (JSON untuk fleksibilitas)
             $table->json('selected_items_ids')->nullable(); // e.g., {'board': 1, 'cover_luar': 2, ...}
 
-            // Dimensi Potongan Jadi - BOARD
-            $table->float('dim_board_atas_p', 8, 2)->nullable(); $table->float('dim_board_atas_l', 8, 2)->nullable();
-            $table->float('dim_board_bawah_p', 8, 2)->nullable(); $table->float('dim_board_bawah_l', 8, 2)->nullable();
-            $table->float('dim_board_kuping_p', 8, 2)->nullable(); $table->float('dim_board_kuping_l', 8, 2)->nullable();
-            $table->float('dim_board_lidah_p', 8, 2)->nullable(); $table->float('dim_board_lidah_l', 8, 2)->nullable();
-            $table->float('dim_board_selongsong_p', 8, 2)->nullable(); $table->float('dim_board_selongsong_l', 8, 2)->nullable();
+            // Dimensi Kertas Input (Baru ditambahkan)
+            $table->float('board_panjang_kertas', 8, 2)->nullable();
+            $table->float('board_lebar_kertas', 8, 2)->nullable();
+            $table->float('cover_luar_panjang_kertas', 8, 2)->nullable();
+            $table->float('cover_luar_lebar_kertas', 8, 2)->nullable();
+            $table->float('cover_dalam_panjang_kertas', 8, 2)->nullable();
+            $table->float('cover_dalam_lebar_kertas', 8, 2)->nullable();
+            $table->float('busa_panjang_kertas', 8, 2)->nullable();
+            $table->float('busa_lebar_kertas', 8, 2)->nullable();
 
-            // Dimensi Potongan Jadi - COVER LUAR
-            $table->float('dim_cl_atas_p', 8, 2)->nullable(); $table->float('dim_cl_atas_l', 8, 2)->nullable();
-            $table->float('dim_cl_bawah_p', 8, 2)->nullable(); $table->float('dim_cl_bawah_l', 8, 2)->nullable();
-            $table->float('dim_cl_kuping_p', 8, 2)->nullable(); $table->float('dim_cl_kuping_l', 8, 2)->nullable();
-            $table->float('dim_cl_lidah_p', 8, 2)->nullable(); $table->float('dim_cl_lidah_l', 8, 2)->nullable();
-            $table->float('dim_cl_selongsong_p', 8, 2)->nullable(); $table->float('dim_cl_selongsong_l', 8, 2)->nullable();
+            // Dimensi Potongan Jadi - BOARD (Nama kolom disesuaikan)
+            $table->float('panjang_board_atas', 8, 2)->nullable(); $table->float('lebar_board_atas', 8, 2)->nullable();
+            $table->float('panjang_board_bawah', 8, 2)->nullable(); $table->float('lebar_board_bawah', 8, 2)->nullable();
+            $table->float('panjang_board_kuping', 8, 2)->nullable(); $table->float('lebar_board_kuping', 8, 2)->nullable();
+            $table->float('panjang_board_lidah', 8, 2)->nullable(); $table->float('lebar_board_lidah', 8, 2)->nullable();
+            $table->float('panjang_board_selongsong', 8, 2)->nullable(); $table->float('lebar_board_selongsong', 8, 2)->nullable();
 
-            // Dimensi Potongan Jadi - COVER DALAM
-            $table->float('dim_cd_atas_p', 8, 2)->nullable(); $table->float('dim_cd_atas_l', 8, 2)->nullable();
-            $table->float('dim_cd_bawah_p', 8, 2)->nullable(); $table->float('dim_cd_bawah_l', 8, 2)->nullable();
-            // $table->float('dim_cd_kuping_p', 8, 2)->nullable(); $table->float('dim_cd_kuping_l', 8, 2)->nullable(); // Kuping CD pakai _atas
-            $table->float('dim_cd_lidah_p', 8, 2)->nullable(); $table->float('dim_cd_lidah_l', 8, 2)->nullable();
-            $table->float('dim_cd_selongsong_p', 8, 2)->nullable(); $table->float('dim_cd_selongsong_l', 8, 2)->nullable();
+            // Dimensi Potongan Jadi - COVER LUAR (Nama kolom disesuaikan)
+            $table->float('panjang_cover_luar_atas', 8, 2)->nullable(); $table->float('lebar_cover_luar_atas', 8, 2)->nullable();
+            $table->float('panjang_cover_luar_bawah', 8, 2)->nullable(); $table->float('lebar_cover_luar_bawah', 8, 2)->nullable();
+            $table->float('panjang_cover_luar_kuping', 8, 2)->nullable(); $table->float('lebar_cover_luar_kuping', 8, 2)->nullable();
+            $table->float('panjang_cover_luar_lidah', 8, 2)->nullable(); $table->float('lebar_cover_luar_lidah', 8, 2)->nullable();
+            $table->float('panjang_cover_luar_selongsong', 8, 2)->nullable(); $table->float('lebar_cover_luar_selongsong', 8, 2)->nullable();
 
-            // Dimensi Potongan Jadi - BUSA
-            $table->float('dim_busa_p', 8, 2)->nullable(); $table->float('dim_busa_l', 8, 2)->nullable();
+            // Dimensi Potongan Jadi - COVER DALAM (Nama kolom disesuaikan)
+            $table->float('panjang_cover_dalam_atas', 8, 2)->nullable(); $table->float('lebar_cover_dalam_atas', 8, 2)->nullable();
+            $table->float('panjang_cover_dalam_bawah', 8, 2)->nullable(); $table->float('lebar_cover_dalam_bawah', 8, 2)->nullable();
+            $table->float('panjang_cover_dalam_lidah', 8, 2)->nullable(); $table->float('lebar_cover_dalam_lidah', 8, 2)->nullable();
+            $table->float('panjang_cover_dalam_selongsong', 8, 2)->nullable(); $table->float('lebar_cover_dalam_selongsong', 8, 2)->nullable();
+
+            // Dimensi Potongan Jadi - BUSA (Nama kolom disesuaikan)
+            $table->float('panjang_busa', 8, 2)->nullable(); $table->float('lebar_busa', 8, 2)->nullable();
 
             // Kuantitas Final - BOARD
             $table->integer('final_qty_board_atas')->nullable();
@@ -84,19 +93,18 @@ return new class extends Migration
             $table->integer('final_qty_board_lidah')->nullable();
             $table->integer('final_qty_board_selongsong')->nullable();
 
-            // Kuantitas Final - COVER LUAR
-            $table->integer('final_qty_cl_atas')->nullable();
-            $table->integer('final_qty_cl_bawah')->nullable();
-            $table->integer('final_qty_cl_kuping')->nullable();
-            $table->integer('final_qty_cl_lidah')->nullable();
-            $table->integer('final_qty_cl_selongsong')->nullable();
+            // Kuantitas Final - COVER LUAR (Nama kolom disesuaikan)
+            $table->integer('final_qty_cover_luar_atas')->nullable();
+            $table->integer('final_qty_cover_luar_bawah')->nullable();
+            $table->integer('final_qty_cover_luar_kuping')->nullable();
+            $table->integer('final_qty_cover_luar_lidah')->nullable();
+            $table->integer('final_qty_cover_luar_selongsong')->nullable();
 
-            // Kuantitas Final - COVER DALAM
-            $table->integer('final_qty_cd_atas')->nullable();
-            $table->integer('final_qty_cd_bawah')->nullable();
-            // $table->integer('final_qty_cd_kuping')->nullable(); // Kuping CD pakai _atas
-            $table->integer('final_qty_cd_lidah')->nullable();
-            $table->integer('final_qty_cd_selongsong')->nullable();
+            // Kuantitas Final - COVER DALAM (Nama kolom disesuaikan)
+            $table->integer('final_qty_cover_dalam_atas')->nullable();
+            $table->integer('final_qty_cover_dalam_bawah')->nullable();
+            $table->integer('final_qty_cover_dalam_lidah')->nullable();
+            $table->integer('final_qty_cover_dalam_selongsong')->nullable();
             
             // Kuantitas Final - BUSA
             $table->integer('final_qty_busa')->nullable();
@@ -108,19 +116,18 @@ return new class extends Migration
             $table->decimal('unit_price_board_lidah', 12, 2)->nullable();
             $table->decimal('unit_price_board_selongsong', 12, 2)->nullable();
 
-            // Harga Satuan - COVER LUAR
-            $table->decimal('unit_price_cl_atas', 12, 2)->nullable();
-            $table->decimal('unit_price_cl_bawah', 12, 2)->nullable();
-            $table->decimal('unit_price_cl_kuping', 12, 2)->nullable();
-            $table->decimal('unit_price_cl_lidah', 12, 2)->nullable();
-            $table->decimal('unit_price_cl_selongsong', 12, 2)->nullable();
+            // Harga Satuan - COVER LUAR (Nama kolom disesuaikan)
+            $table->decimal('unit_price_cover_luar_atas', 12, 2)->nullable();
+            $table->decimal('unit_price_cover_luar_bawah', 12, 2)->nullable();
+            $table->decimal('unit_price_cover_luar_kuping', 12, 2)->nullable();
+            $table->decimal('unit_price_cover_luar_lidah', 12, 2)->nullable();
+            $table->decimal('unit_price_cover_luar_selongsong', 12, 2)->nullable();
 
-            // Harga Satuan - COVER DALAM
-            $table->decimal('unit_price_cd_atas', 12, 2)->nullable();
-            $table->decimal('unit_price_cd_bawah', 12, 2)->nullable();
-            // $table->decimal('unit_price_cd_kuping', 12, 2)->nullable(); // Kuping CD pakai _atas
-            $table->decimal('unit_price_cd_lidah', 12, 2)->nullable();
-            $table->decimal('unit_price_cd_selongsong', 12, 2)->nullable();
+            // Harga Satuan - COVER DALAM (Nama kolom disesuaikan)
+            $table->decimal('unit_price_cover_dalam_atas', 12, 2)->nullable();
+            $table->decimal('unit_price_cover_dalam_bawah', 12, 2)->nullable();
+            $table->decimal('unit_price_cover_dalam_lidah', 12, 2)->nullable();
+            $table->decimal('unit_price_cover_dalam_selongsong', 12, 2)->nullable();
 
             // Harga Satuan - BUSA
             $table->decimal('unit_price_busa', 12, 2)->nullable();
