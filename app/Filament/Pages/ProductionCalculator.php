@@ -25,6 +25,8 @@ use Illuminate\Support\Str;
 use Filament\Forms\Components\Fieldset;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Actions\Action;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class ProductionCalculator extends Page implements HasForms
 {
@@ -34,18 +36,52 @@ class ProductionCalculator extends Page implements HasForms
     protected static ?string $navigationLabel = 'Kalkulator Harga';
     protected static string $view = 'filament.pages.production-calculator';
 
+    public bool $showSummaryAfterSave = false;
+
+    // Properti publik untuk binding form
     public ?array $data = [];
 
+    // Properti untuk toggle include, pastikan ini ada di $data juga
     public bool $includeBoard = false;
     public bool $includeCoverLuar = false;
     public bool $includeCoverDalam = false;
     public bool $includeBusa = false;
 
-    public $calculationResult = null;
+    public $calculationResult = null; // Total estimasi harga dalam format display
+
+    // Properti publik untuk menampilkan ringkasan hasil perhitungan
+    public ?float $summaryTotalMaterialCost = null;
+    public ?float $summaryTotalProductionWorkCost = null;
+    public ?float $summaryTotalPolyCost = null;
+    public ?float $summaryActualKnifeCost = null;
+    public ?float $summaryProfitAmount = null;
+    public ?float $summarySellingPricePerItem = null;
+    public ?float $summaryTotalPrice = null;
+
+    // Properti publik untuk menampilkan harga satuan per komponen jadi
+    public ?float $unitPriceBoardAtas = null;
+    public ?float $unitPriceBoardBawah = null;
+    public ?float $unitPriceBoardKuping = null;
+    public ?float $unitPriceBoardLidah = null;
+    public ?float $unitPriceBoardSelongsong = null;
+    public ?float $unitPriceClAtas = null;
+    public ?float $unitPriceClBawah = null;
+    public ?float $unitPriceClKuping = null;
+    public ?float $unitPriceClLidah = null;
+    public ?float $unitPriceClSelongsong = null;
+    public ?float $unitPriceCdAtas = null;
+    public ?float $unitPriceCdBawah = null;
+    public ?float $unitPriceCdLidah = null;
+    public ?float $unitPriceCdSelongsong = null;
+    public ?float $unitPriceBusa = null;
 
     private function getFloatVal($value): float
     {
-        return is_numeric($value) ? (float)$value : 0;
+        // Hapus semua karakter non-numerik kecuali titik dan koma
+        $cleanedValue = preg_replace('/[^\d.,]/', '', (string)$value);
+        // Ganti koma dengan titik untuk konsistensi desimal
+        $cleanedValue = str_replace(',', '.', $cleanedValue);
+        return is_numeric($cleanedValue) ? (float)$cleanedValue : 0.0;
     }
 
     public function mount(): void
@@ -57,64 +93,60 @@ class ProductionCalculator extends Page implements HasForms
             'includeCoverLuar' => $this->includeCoverLuar,
             'includeCoverDalam' => $this->includeCoverDalam,
             'includeBusa' => $this->includeBusa,
-            'box_type_selection' => 'TAB', // Default
+            'box_type_selection' => 'TAB',
+            'product_name' => null,
+            'size' => null,
+            'poly_dimension' => null,
+            'atas_panjang' => null, 'atas_lebar' => null, 'atas_tinggi' => null,
+            'bawah_panjang' => null, 'bawah_lebar' => null, 'bawah_tinggi' => null,
+            'selected_item_board' => null,
+            'selected_item_cover_luar' => null,
+            'selected_item_cover_dalam' => null,
+            'selected_item_busa' => null,
         ]);
+        $this->clearCalculationResults();
     }
 
     protected function getItemPriceByQuantity(?ProductionItem $item, int $quantity): float
     {
-        if (!$item) { return 0; }
-        return (float)($item->price ?? 0);
+        if (!$item) { return 0.0; }
+        return (float)($item->price ?? 0.0);
     }
 
-    // --- START: Fungsi Formula ---
-
-    // BASE BOARD (digunakan oleh banyak jenis box)
+    // --- START: Fungsi Formula (tidak berubah dari kode Anda) ---
     protected function calculateBaseBoardPanjang($panjangBox, $tinggiBox): float {
         return (2 * $this->getFloatVal($tinggiBox)) + $this->getFloatVal($panjangBox) + 3;
     }
     protected function calculateBaseBoardLebar($lebarBox, $tinggiBox): float {
         return (2 * $this->getFloatVal($tinggiBox)) + $this->getFloatVal($lebarBox) + 3;
     }
-
-    // COVER LUAR (Untuk TAB, BUSA, Double Wall Treasury)
-    protected function calculateBaseCoverLuarPanjang($panjangBox, $tinggiBox): float { // Umumnya P + 2T + 3 + 4
+    protected function calculateBaseCoverLuarPanjang($panjangBox, $tinggiBox): float {
         return (2 * $this->getFloatVal($tinggiBox)) + $this->getFloatVal($panjangBox) + 3 + 4;
     }
-    // Untuk Cover Luar Lebar Box ATAS (TAB, BUSA, DWT) -> Rumus: L + 2T + 3
     protected function calculateCoverLuarLebarAtasStyle($lebarBox, $tinggiBox): float {
         return (2 * $this->getFloatVal($tinggiBox)) + $this->getFloatVal($lebarBox) + 3;
     }
-    // Untuk Cover Luar Lebar Box BAWAH (TAB, BUSA, DWT) -> Rumus: L + 2T + 3 + 4
     protected function calculateCoverLuarLebarBawahStyle($lebarBox, $tinggiBox): float {
         return (2 * $this->getFloatVal($tinggiBox)) + $this->getFloatVal($lebarBox) + 3 + 4;
     }
-
-    // BASE COVER DALAM
     protected function calculateBaseCoverDalamPanjang($panjangBox, $tinggiBox): float {
         return (2 * $this->getFloatVal($tinggiBox)) + $this->getFloatVal($panjangBox) + 3;
     }
     protected function calculateBaseCoverDalamLebar($lebarBox, $tinggiBox): float {
         return (2 * $this->getFloatVal($tinggiBox)) + $this->getFloatVal($lebarBox) + 3;
     }
-
-    // BASE BUSA
     protected function calculateBaseBusaPanjang($panjangBoxBawah): float {
         return $this->getFloatVal($panjangBoxBawah) + 3;
     }
     protected function calculateBaseBusaLebar($lebarBoxBawah): float {
         return $this->getFloatVal($lebarBoxBawah) + 3;
     }
-
-    // JENDELA - BOARD KUPING
-    protected function calculateJendelaBoardPanjangKuping($lebarBoxAtas, $tinggiBoxAtas): float { // Menggunakan LEBAR atas
+    protected function calculateJendelaBoardPanjangKuping($lebarBoxAtas, $tinggiBoxAtas): float {
         return (2 * $this->getFloatVal($tinggiBoxAtas)) + $this->getFloatVal($lebarBoxAtas) + 3;
     }
-    protected function calculateJendelaBoardLebarKuping($panjangBoxAtas, $tinggiBoxAtas): float { // Menggunakan PANJANG atas
+    protected function calculateJendelaBoardLebarKuping($panjangBoxAtas, $tinggiBoxAtas): float {
         return $this->getFloatVal($panjangBoxAtas) + $this->getFloatVal($tinggiBoxAtas) + 3;
     }
-
-    // JENDELA - COVER LUAR
     protected function calculateJendelaCoverLuarPanjangBoxBawah($panjangBoxBawah, $lebarBoxBawah, $panjangKertasCoverLuar): float {
         $val = (2 * $this->getFloatVal($panjangBoxBawah)) + (2 * $this->getFloatVal($lebarBoxBawah)) + 3 + 2;
         if ($this->getFloatVal($panjangKertasCoverLuar) == 0) return $val;
@@ -123,22 +155,14 @@ class ProductionCalculator extends Page implements HasForms
     protected function calculateJendelaCoverLuarLebarBoxBawah($tinggiBoxBawah): float { return $this->getFloatVal($tinggiBoxBawah) + 5 + 3; }
     protected function calculateJendelaCoverLuarPanjangKuping($lebarBoxAtas, $tinggiBoxAtas): float { return (2 * $this->getFloatVal($tinggiBoxAtas)) + $this->getFloatVal($lebarBoxAtas) + 3 + 4; }
     protected function calculateJendelaCoverLuarLebarKuping($panjangBoxAtas, $tinggiBoxAtas): float { return $this->getFloatVal($panjangBoxAtas) + $this->getFloatVal($tinggiBoxAtas) + 3 + 4; }
-
-    // JENDELA - COVER DALAM KUPING (ATAS)
     protected function calculateJendelaCoverDalamPanjangAtas($lebarBoxAtas, $tinggiBoxAtas): float { return (2 * $this->getFloatVal($tinggiBoxAtas)) + $this->getFloatVal($lebarBoxAtas) + 3 + 4; }
     protected function calculateJendelaCoverDalamLebarAtas($panjangBoxAtas, $tinggiBoxAtas): float { return $this->getFloatVal($tinggiBoxAtas) + $this->getFloatVal($panjangBoxAtas) + 3 + 4; }
-
-    // --- FUNGSI HELPER BARU/SPESIFIK UNTUK BUKU MAGNET (Board Box Bawah) ---
-    // This function was causing the incorrect calculation for 'BUKU MAGNET' panjang_board_bawah.
-    // It is no longer used for 'panjang_board_bawah' in BUKU MAGNET to ensure the correct formula is applied.
     protected function calculateBukuMagnetBoardPanjangBoxBawah($panjangBoxBawah, $lebarBoxBawah): float {
         return (2 * $this->getFloatVal($lebarBoxBawah)) + $this->getFloatVal($panjangBoxBawah) + 3;
     }
     protected function calculateBukuMagnetBoardLebarBoxBawah($lebarBoxBawah, $tinggiBoxBawah): float {
         return (2 * $this->getFloatVal($tinggiBoxBawah)) + $this->getFloatVal($lebarBoxBawah) + 2;
     }
-
-    // --- FUNGSI HELPER UNTUK BUKU MAGNET (Board Lidah - RUMUS BARU) ---
     protected function calculateBukuMagnet_NEW_BoardPanjangLidah($panjangBoxBawah, $tinggiBoxBawah, $panjangKertasBoard = 66): float {
         $val = (2 * $this->getFloatVal($panjangBoxBawah)) + ($this->getFloatVal($tinggiBoxBawah) * 2) + (0.5 * 3) + 3;
         if ($this->getFloatVal($panjangKertasBoard) == 0) return $val;
@@ -149,8 +173,6 @@ class ProductionCalculator extends Page implements HasForms
         if ($this->getFloatVal($lebarKertasBoard) == 0) return $val;
         return $val > $this->getFloatVal($lebarKertasBoard) ? $val / 2 : $val;
     }
-
-    // --- FUNGSI HELPER UNTUK BUKU PITA (Board Lidah - RUMUS ORIGINAL/LAMA) ---
     protected function calculateBukuPita_OLD_BoardPanjangLidah($panjangBoxBawah): float {
         return $this->getFloatVal($panjangBoxBawah) + 3;
     }
@@ -159,42 +181,28 @@ class ProductionCalculator extends Page implements HasForms
         if ($this->getFloatVal($lebarKertasBoard) == 0) return $val;
         return $val > $this->getFloatVal($lebarKertasBoard) ? $val / 2 : $val;
     }
-
-    // BUKU PITA - COVER LUAR LIDAH
     protected function calculateBukuPitaCoverLuarPanjangLidah($lebarBoxBawah, $tinggiBoxBawah, $lebarKertasCoverLuar): float {
         $val = (2 * $this->getFloatVal($lebarBoxBawah)) + (2 * $this->getFloatVal($tinggiBoxBawah)) + 3 + 2;
         if ($this->getFloatVal($lebarKertasCoverLuar) == 0) return $val;
         return $val > $this->getFloatVal($lebarKertasCoverLuar) ? $val / 2 : ($val - $this->getFloatVal($lebarBoxBawah));
     }
     protected function calculateBukuPitaCoverLuarLebarLidah($panjangBoxBawah): float { return $this->getFloatVal($panjangBoxBawah) + 5 + 3; }
-
-    // BUKU MAGNET - COVER LUAR LIDAH
     protected function calculateBukuMagnetCoverLuarPanjangLidah($panjangBoxBawah, $tinggiBoxBawah, $panjangKertas): float {
-        // Updated formula based on user's input: (2 * LEBAR BOX BAWAH) + (TINGGI BOX BAWAH * 2) + (0.5 * 3) + 5 + 3
         $val = (2 * $this->getFloatVal($panjangBoxBawah)) + ($this->getFloatVal($tinggiBoxBawah) * 2) + (0.5 * 3) + 5 + 3;
         if ($this->getFloatVal($panjangKertas) == 0) return $val;
         return $val > $this->getFloatVal($panjangKertas) ? $val / 2 : $val;
     }
     protected function calculateBukuMagnetCoverLuarLebarLidah($lebarBoxBawah, $tinggiBoxBawah, $lebarKertas): float {
-        // Updated formula based on user's input: PANJANG BOX BAWAH + 5 + 3
         $val = $this->getFloatVal($lebarBoxBawah) + 5 + 3;
         if ($this->getFloatVal($lebarKertas) == 0) return $val;
         return $val > $this->getFloatVal($lebarKertas) ? $val / 2 : $val;
     }
-
-    // BUKU PITA & MAGNET - COVER DALAM LIDAH
     protected function calculateBukuPitaCoverDalamLebarLidah($lebarBoxBawah, $tinggiBoxBawah): float { return $this->getFloatVal($lebarBoxBawah) + $this->getFloatVal($tinggiBoxBawah) + 3; }
     protected function calculateBukuMagnetCoverDalamLebarLidah($lebarBoxBawah, $tinggiBoxBawah): float { return $this->getFloatVal($lebarBoxBawah) + (2 * $this->getFloatVal($tinggiBoxBawah)) + 3; }
-
-    // SELONGSONG - BOARD
     protected function calculateSelongsongBoardPanjangSelongsong($lebarBoxBawah, $tinggiBoxBawah): float { return (2 * $this->getFloatVal($lebarBoxBawah)) + (2 * $this->getFloatVal($tinggiBoxBawah)) + 3; }
     protected function calculateSelongsongBoardLebarSelongsong($panjangBoxBawah, $tinggiBoxBawah): float { return $this->getFloatVal($panjangBoxBawah) + $this->getFloatVal($tinggiBoxBawah) + 3; }
-
-    // SELONGSONG - COVER LUAR
     protected function calculateSelongsongCoverLuarPanjangSelongsong($lebarBoxBawah, $tinggiBoxBawah): float { return (2 * $this->getFloatVal($lebarBoxBawah)) + (2 * $this->getFloatVal($tinggiBoxBawah)) + 2 + 4; }
     protected function calculateSelongsongCoverLuarLebarSelongsong($panjangBoxBawah, $tinggiBoxBawah): float { return $this->getFloatVal($panjangBoxBawah) + $this->getFloatVal($tinggiBoxBawah) + 4 + 3; }
-
-    // SELONGSONG - COVER DALAM
     protected function calculateSelongsongCoverDalamPanjangSelongsong($lebarBoxBawah, $tinggiBoxBawah): float { return (2 * $this->getFloatVal($lebarBoxBawah)) + (2 * $this->getFloatVal($tinggiBoxBawah)) + 3; }
     protected function calculateSelongsongCoverDalamLebarSelongsong($panjangBoxBawah, $tinggiBoxBawah): float { return $this->getFloatVal($panjangBoxBawah) + $this->getFloatVal($tinggiBoxBawah) + 3; }
     // --- END: Fungsi Formula ---
@@ -231,7 +239,9 @@ class ProductionCalculator extends Page implements HasForms
             'unit_price_busa',
         ];
         $initialized = [];
-        foreach ($fields as $field) { $initialized[$field] = 0; }
+        foreach ($fields as $field) {
+            $initialized[$field] = 0.0;
+        }
         return $initialized;
     }
 
@@ -270,6 +280,7 @@ class ProductionCalculator extends Page implements HasForms
         if ($this->includeCoverDalam && $itemCoverDalam) { $calculations['cover_dalam_panjang_kertas'] = $pkCoverDalam; $calculations['cover_dalam_lebar_kertas'] = $lkCoverDalam; }
         if ($this->includeBusa && $itemBusa) { $calculations['busa_panjang_kertas'] = $pkBusa; $calculations['busa_lebar_kertas'] = $lkBusa;}
 
+        // Logika perhitungan dimensi berdasarkan boxType (tidak diubah dari kode Anda)
         switch ($boxType) {
             case 'TAB':
             case 'BUSA':
@@ -287,17 +298,16 @@ class ProductionCalculator extends Page implements HasForms
                 }
                 if ($this->includeCoverLuar && $itemCoverLuar) {
                     $calculations['panjang_cover_luar_atas'] = $this->calculateBaseCoverLuarPanjang($atasPanjang, $atasTinggi);
-                    // Updated formula for Double Wall Treasury Cover Luar Lebar Atas
                     if ($boxType === 'Double WallTreasury') {
                         $calculations['lebar_cover_luar_atas'] = (2 * $this->getFloatVal($atasTinggi)) + $this->getFloatVal($atasPanjang) + 3;
                     } else {
-                        $calculations['lebar_cover_luar_atas'] = $this->calculateCoverLuarLebarAtasStyle($atasLebar, $atasTinggi); // Rumus: L + 2T + 3
+                        $calculations['lebar_cover_luar_atas'] = $this->calculateCoverLuarLebarAtasStyle($atasLebar, $atasTinggi);
                     }
                     $qty = $this->calculateSheetQuantities($calculations['panjang_cover_luar_atas'], $calculations['lebar_cover_luar_atas'], $pkCoverLuar, $lkCoverLuar);
                     $calculations['qty1_cover_luar_atas'] = $qty['qty1']; $calculations['qty2_cover_luar_atas'] = $qty['qty2']; $calculations['final_qty_cover_luar_atas'] = $qty['final_qty'];
                     
                     $calculations['panjang_cover_luar_bawah'] = $this->calculateBaseCoverLuarPanjang($bawahPanjang, $bawahTinggi);
-                    $calculations['lebar_cover_luar_bawah'] = $this->calculateCoverLuarLebarBawahStyle($bawahLebar, $bawahTinggi); // Rumus: L + 2T + 3 + 4
+                    $calculations['lebar_cover_luar_bawah'] = $this->calculateCoverLuarLebarBawahStyle($bawahLebar, $bawahTinggi);
                     $qty = $this->calculateSheetQuantities($calculations['panjang_cover_luar_bawah'], $calculations['lebar_cover_luar_bawah'], $pkCoverLuar, $lkCoverLuar);
                     $calculations['qty1_cover_luar_bawah'] = $qty['qty1']; $calculations['qty2_cover_luar_bawah'] = $qty['qty2']; $calculations['final_qty_cover_luar_bawah'] = $qty['final_qty'];
                 }
@@ -327,7 +337,7 @@ class ProductionCalculator extends Page implements HasForms
                     $qty = $this->calculateSheetQuantities($calculations['panjang_board_bawah'], $calculations['lebar_board_bawah'], $pkBoard, $lkBoard);
                     $calculations['qty1_board_bawah'] = $qty['qty1']; $calculations['qty2_board_bawah'] = $qty['qty2']; $calculations['final_qty_board_bawah'] = $qty['final_qty'];
                     
-                    $calculations['panjang_board_kuping'] = $this->calculateJendelaBoardPanjangKuping($atasLebar, $atasTinggi); // Menggunakan $atasLebar
+                    $calculations['panjang_board_kuping'] = $this->calculateJendelaBoardPanjangKuping($atasLebar, $atasTinggi);
                     $calculations['lebar_board_kuping'] = $this->calculateJendelaBoardLebarKuping($atasPanjang, $atasTinggi);    
                     $qty = $this->calculateSheetQuantities($calculations['panjang_board_kuping'], $calculations['lebar_board_kuping'], $pkBoard, $lkBoard);
                     $calculations['qty1_board_kuping'] = $qty['qty1']; $calculations['qty2_board_kuping'] = $qty['qty2']; $calculations['final_qty_board_kuping'] = $qty['final_qty'];
@@ -338,7 +348,7 @@ class ProductionCalculator extends Page implements HasForms
                     $qty = $this->calculateSheetQuantities($calculations['panjang_cover_luar_bawah'], $calculations['lebar_cover_luar_bawah'], $pkCoverLuar, $lkCoverLuar);
                     $calculations['qty1_cover_luar_bawah'] = $qty['qty1']; $calculations['qty2_cover_luar_bawah'] = $qty['qty2']; $calculations['final_qty_cover_luar_bawah'] = $qty['final_qty'];
                     
-                    $calculations['panjang_cover_luar_kuping'] = $this->calculateJendelaCoverLuarPanjangKuping($atasLebar, $atasTinggi); 
+                    $calculations['panjang_cover_luar_kuping'] = $this->calculateJendelaCoverLuarPanjangKuping($atasLebar, $atasTinggi);  
                     $calculations['lebar_cover_luar_kuping'] = $this->calculateJendelaCoverLuarLebarKuping($atasPanjang, $atasTinggi);
                     $qty = $this->calculateSheetQuantities($calculations['panjang_cover_luar_kuping'], $calculations['lebar_cover_luar_kuping'], $pkCoverLuar, $lkCoverLuar);
                     $calculations['qty1_cover_luar_kuping'] = $qty['qty1']; $calculations['qty2_cover_luar_kuping'] = $qty['qty2']; $calculations['final_qty_cover_luar_kuping'] = $qty['final_qty'];
@@ -349,7 +359,7 @@ class ProductionCalculator extends Page implements HasForms
                     $qty = $this->calculateSheetQuantities($calculations['panjang_cover_dalam_bawah'], $calculations['lebar_cover_dalam_bawah'], $pkCoverDalam, $lkCoverDalam);
                     $calculations['qty1_cover_dalam_bawah'] = $qty['qty1']; $calculations['qty2_cover_dalam_bawah'] = $qty['qty2']; $calculations['final_qty_cover_dalam_bawah'] = $qty['final_qty'];
                     
-                    $calculations['panjang_cover_dalam_atas'] = $this->calculateJendelaCoverDalamPanjangAtas($atasLebar, $atasTinggi); 
+                    $calculations['panjang_cover_dalam_atas'] = $this->calculateJendelaCoverDalamPanjangAtas($atasLebar, $atasTinggi);  
                     $calculations['lebar_cover_dalam_atas'] = $this->calculateJendelaCoverDalamLebarAtas($atasPanjang, $atasTinggi);    
                     $qty = $this->calculateSheetQuantities($calculations['panjang_cover_dalam_atas'], $calculations['lebar_cover_dalam_atas'], $pkCoverDalam, $lkCoverDalam);
                     $calculations['qty1_cover_dalam_atas'] = $qty['qty1']; $calculations['qty2_cover_dalam_atas'] = $qty['qty2']; $calculations['final_qty_cover_dalam_atas'] = $qty['final_qty'];
@@ -366,44 +376,28 @@ class ProductionCalculator extends Page implements HasForms
             case 'BUKU MAGNET':
                 if ($this->includeBoard && $itemBoard) {
                     if ($boxType === 'BUKU MAGNET') {
-                        // --- KHUSUS UNTUK BUKU MAGNET ---
-                        // Board Box Bawah - CHANGED to use calculateBaseBoardPanjang for correct formula
                         $calculations['panjang_board_bawah'] = $this->calculateBaseBoardPanjang($bawahPanjang, $bawahTinggi);
                         $calculations['lebar_board_bawah'] = $this->calculateBukuMagnetBoardLebarBoxBawah($bawahLebar, $bawahTinggi);
                         
-                        // Board Lidah (menggunakan fungsi yang telah diubah/baru untuk BUKU MAGNET)
                         $calculations['panjang_board_lidah'] = $this->calculateBukuMagnet_NEW_BoardPanjangLidah($bawahPanjang, $bawahTinggi, $pkBoard);
                         $calculations['lebar_board_lidah'] = $this->calculateBukuMagnet_NEW_BoardLebarLidah($bawahLebar, $bawahTinggi, $lkBoard);
 
-                    } else { // Ini berarti $boxType === 'BUKU PITA'
-                        // --- UNTUK BUKU PITA (menggunakan rumus standar/original) ---
-                        // Board Box Bawah (menggunakan fungsi base standar)
+                    } else { // 'BUKU PITA'
                         $calculations['panjang_board_bawah'] = $this->calculateBaseBoardPanjang($bawahPanjang, $bawahTinggi);
                         $calculations['lebar_board_bawah'] = $this->calculateBaseBoardLebar($bawahLebar, $bawahTinggi);
 
-                        // Board Lidah (menggunakan fungsi original/lama untuk BUKU PITA)
                         $calculations['panjang_board_lidah'] = $this->calculateBukuPita_OLD_BoardPanjangLidah($bawahPanjang);
                         $calculations['lebar_board_lidah'] = $this->calculateBukuPita_OLD_BoardLebarLidah($bawahLebar, $bawahTinggi, $lkBoard);
                     }
-
-                    // Kalkulasi kuantitas (qty) untuk board bawah - berlaku untuk keduanya
                     $qtyBawah = $this->calculateSheetQuantities($calculations['panjang_board_bawah'], $calculations['lebar_board_bawah'], $pkBoard, $lkBoard);
-                    $calculations['qty1_board_bawah'] = $qtyBawah['qty1']; 
-                    $calculations['qty2_board_bawah'] = $qtyBawah['qty2']; 
-                    $calculations['final_qty_board_bawah'] = $qtyBawah['final_qty'];
+                    $calculations['qty1_board_bawah'] = $qtyBawah['qty1']; $calculations['qty2_board_bawah'] = $qtyBawah['qty2']; $calculations['final_qty_board_bawah'] = $qtyBawah['final_qty'];
                     
-                    // Kalkulasi kuantitas (qty) untuk board lidah - berlaku untuk keduanya (jika ada dimensi lidah)
                     if (($calculations['panjang_board_lidah'] ?? 0) > 0 && ($calculations['lebar_board_lidah'] ?? 0) > 0) {
                         $qtyLidah = $this->calculateSheetQuantities($calculations['panjang_board_lidah'], $calculations['lebar_board_lidah'], $pkBoard, $lkBoard);
-                        $calculations['qty1_board_lidah'] = $qtyLidah['qty1']; 
-                        $calculations['qty2_board_lidah'] = $qtyLidah['qty2']; 
-                        $calculations['final_qty_board_lidah'] = $qtyLidah['final_qty'];
+                        $calculations['qty1_board_lidah'] = $qtyLidah['qty1']; $calculations['qty2_board_lidah'] = $qtyLidah['qty2']; $calculations['final_qty_board_lidah'] = $qtyLidah['final_qty'];
                     } else {
-                        $calculations['panjang_board_lidah'] = 0;
-                        $calculations['lebar_board_lidah'] = 0;   
-                        $calculations['qty1_board_lidah'] = 0; 
-                        $calculations['qty2_board_lidah'] = 0; 
-                        $calculations['final_qty_board_lidah'] = 0;
+                        $calculations['panjang_board_lidah'] = 0.0; $calculations['lebar_board_lidah'] = 0.0;
+                        $calculations['qty1_board_lidah'] = 0; $calculations['qty2_board_lidah'] = 0; $calculations['final_qty_board_lidah'] = 0;
                     }
                 }
                 if ($this->includeCoverLuar && $itemCoverLuar) {
@@ -413,16 +407,10 @@ class ProductionCalculator extends Page implements HasForms
                         $calculations['panjang_cover_luar_lidah'] = $this->calculateBukuPitaCoverLuarPanjangLidah($bawahLebar, $bawahTinggi, $lkCoverLuar);
                         $calculations['lebar_cover_luar_lidah'] = $this->calculateBukuPitaCoverLuarLebarLidah($bawahPanjang);
                     } else { // BUKU MAGNET
-                        // The user's formula for Cover luar Panjang box bawah is already implemented in calculateJendelaCoverLuarPanjangBoxBawah
-                        // So, we will use that for BUKU MAGNET as well.
                         $calculations['panjang_cover_luar_bawah'] = $this->calculateJendelaCoverLuarPanjangBoxBawah($bawahPanjang, $bawahLebar, $pkCoverLuar);
-                        // The user's formula for Cover luar lebar box bawah is already implemented in calculateJendelaCoverLuarLebarBoxBawah
-                        // So, we will use that for BUKU MAGNET as well.
                         $calculations['lebar_cover_luar_bawah'] = $this->calculateJendelaCoverLuarLebarBoxBawah($bawahTinggi);
                         
-                        // New formula for Cover luar panjang lidah for BUKU MAGNET
                         $calculations['panjang_cover_luar_lidah'] = (2 * $this->getFloatVal($bawahLebar)) + (2 * $this->getFloatVal($bawahTinggi)) + (0.5 * 3) + 5 + 3;
-                        // New formula for Cover luar lebar lidah for BUKU MAGNET
                         $calculations['lebar_cover_luar_lidah'] = $this->getFloatVal($bawahPanjang) + 5 + 3;
                     }
                     $qtyBawah = $this->calculateSheetQuantities($calculations['panjang_cover_luar_bawah'], $calculations['lebar_cover_luar_bawah'], $pkCoverLuar, $lkCoverLuar);
@@ -437,13 +425,10 @@ class ProductionCalculator extends Page implements HasForms
                     $qty = $this->calculateSheetQuantities($calculations['panjang_cover_dalam_bawah'], $calculations['lebar_cover_dalam_bawah'], $pkCoverDalam, $lkCoverDalam);
                     $calculations['qty1_cover_dalam_bawah'] = $qty['qty1']; $calculations['qty2_cover_dalam_bawah'] = $qty['qty2']; $calculations['final_qty_cover_dalam_bawah'] = $qty['final_qty'];
                     
-                    // Update for BUKU MAGNET Cover Dalam Lidah Panjang
                     if ($boxType === 'BUKU MAGNET') {
-                        // Formula: panjang box bawah + 3
                         $calculations['panjang_cover_dalam_lidah'] = $this->getFloatVal($bawahPanjang) + 3;
                     } else {
-                        // Mengambil panjang_board_lidah yang sudah dihitung secara kondisional
-                        $calculations['panjang_cover_dalam_lidah'] = $calculations['panjang_board_lidah']; 
+                        $calculations['panjang_cover_dalam_lidah'] = $calculations['panjang_board_lidah'];  
                     }
                     $calculations['lebar_cover_dalam_lidah'] = ($boxType === 'BUKU PITA') ? $this->calculateBukuPitaCoverDalamLebarLidah($bawahLebar, $bawahTinggi) : $this->calculateBukuMagnetCoverDalamLebarLidah($bawahLebar, $bawahTinggi);
                     $qty = $this->calculateSheetQuantities($calculations['panjang_cover_dalam_lidah'], $calculations['lebar_cover_dalam_lidah'], $pkCoverDalam, $lkCoverDalam);
@@ -471,7 +456,7 @@ class ProductionCalculator extends Page implements HasForms
                 }
                 if ($this->includeCoverLuar && $itemCoverLuar) {
                     $calculations['panjang_cover_luar_bawah'] = $this->calculateBaseCoverLuarPanjang($bawahPanjang, $bawahTinggi);
-                    $calculations['lebar_cover_luar_bawah'] = $this->calculateCoverLuarLebarBawahStyle($bawahLebar, $bawahTinggi); // Menggunakan L+2T+3+4
+                    $calculations['lebar_cover_luar_bawah'] = $this->calculateCoverLuarLebarBawahStyle($bawahLebar, $bawahTinggi);
                     $qty = $this->calculateSheetQuantities($calculations['panjang_cover_luar_bawah'], $calculations['lebar_cover_luar_bawah'], $pkCoverLuar, $lkCoverLuar);
                     $calculations['qty1_cover_luar_bawah'] = $qty['qty1']; $calculations['qty2_cover_luar_bawah'] = $qty['qty2']; $calculations['final_qty_cover_luar_bawah'] = $qty['final_qty'];
                     
@@ -502,6 +487,10 @@ class ProductionCalculator extends Page implements HasForms
         return $calculations;
     }
 
+    /**
+     * Menghitung harga satuan untuk setiap komponen dan menyimpannya ke dalam array $allData.
+     * Array $allData dimodifikasi secara langsung (passed by reference).
+     */
     protected function calculateAndStoreUnitPrices(array &$allData, int $orderQuantity): void
     {
         $componentConfigs = [
@@ -526,11 +515,11 @@ class ProductionCalculator extends Page implements HasForms
         ];
         $currentBoxType = $allData['box_type_selection'] ?? null;
 
-        foreach ($componentConfigs as $partName => $config) {
+        foreach ($componentConfigs as $config) {
             $isToggledOn = (bool)($allData[$config['toggle_key']] ?? false);
             $isItemSelected = !empty($allData[$config['item_key']]);
             $isRelevantForBoxType = in_array($currentBoxType, $config['relevant_box_types']);
-            $finalQty = $this->getFloatVal($allData[$config['final_qty_key']] ?? 0); 
+            $finalQty = $this->getFloatVal($allData[$config['final_qty_key']] ?? 0);  
 
             if ($isToggledOn && $isItemSelected && $isRelevantForBoxType && $finalQty > 0) {
                 $item = ProductionItem::find($allData[$config['item_key']]);
@@ -538,43 +527,445 @@ class ProductionCalculator extends Page implements HasForms
                     $pricePerSheet = $this->getItemPriceByQuantity($item, $orderQuantity);
                     $allData[$config['unit_price_key']] = $pricePerSheet / $finalQty;
                 } else {
-                    $allData[$config['unit_price_key']] = 0;
+                    $allData[$config['unit_price_key']] = 0.0;
                 }
             } else {
-                $allData[$config['unit_price_key']] = 0;
+                $allData[$config['unit_price_key']] = 0.0;
             }
         }
     }
-
-    public function updateAllCalculations(): void
+    
+    /**
+     * Metode internal untuk logika inti perhitungan harga final.
+     * Menerima array data yang sudah lengkap (termasuk unit prices).
+     * Memodifikasi $allDataArray (by reference) untuk field summary.
+     * Mengupdate properti publik untuk tampilan.
+     */
+    protected function _calculateFinalPriceInternal(array &$allDataArray, bool $showNotification = true): void
     {
-        $currentState = $this->form->getState();
-        $calculatedValues = $this->calculateAllDimensionsAndQuantities($currentState);
-        $allData = array_merge($currentState, $calculatedValues);
+        $allData = $allDataArray; // Gunakan data yang dioper
         $quantity = (int)($allData['quantity'] ?? 1);
-        $this->calculateAndStoreUnitPrices($allData, $quantity); 
-        $this->form->fill($allData);
+        $currentBoxType = $allData['box_type_selection'] ?? null;
+
+        $totalMaterialCostPerUnit = 0.0;
+        $activePriceKeysMap = [
+            'TAB' => ['unit_price_board_atas', 'unit_price_board_bawah', 'unit_price_cover_luar_atas', 'unit_price_cover_luar_bawah', 'unit_price_cover_dalam_atas', 'unit_price_cover_dalam_bawah', 'unit_price_busa'],
+            'BUSA' => ['unit_price_board_atas', 'unit_price_board_bawah', 'unit_price_cover_luar_atas', 'unit_price_cover_luar_bawah', 'unit_price_cover_dalam_atas', 'unit_price_cover_dalam_bawah', 'unit_price_busa'],
+            'Double WallTreasury' => ['unit_price_board_atas', 'unit_price_board_bawah', 'unit_price_cover_luar_atas', 'unit_price_cover_luar_bawah', 'unit_price_cover_dalam_atas', 'unit_price_cover_dalam_bawah', 'unit_price_busa'],
+            'JENDELA' => ['unit_price_board_kuping', 'unit_price_board_bawah', 'unit_price_cover_luar_kuping', 'unit_price_cover_luar_bawah', 'unit_price_cover_dalam_atas', 'unit_price_cover_dalam_bawah', 'unit_price_busa'],  
+            'BUKU PITA' => ['unit_price_board_lidah', 'unit_price_board_bawah', 'unit_price_cover_luar_lidah', 'unit_price_cover_luar_bawah', 'unit_price_cover_dalam_lidah', 'unit_price_cover_dalam_bawah', 'unit_price_busa'],
+            'BUKU MAGNET' => ['unit_price_board_lidah', 'unit_price_board_bawah', 'unit_price_cover_luar_lidah', 'unit_price_cover_luar_bawah', 'unit_price_cover_dalam_lidah', 'unit_price_cover_dalam_bawah', 'unit_price_busa'],
+            'SELONGSONG' => ['unit_price_board_selongsong', 'unit_price_board_bawah', 'unit_price_cover_luar_selongsong', 'unit_price_cover_luar_bawah', 'unit_price_cover_dalam_selongsong', 'unit_price_cover_dalam_bawah', 'unit_price_busa'],
+        ];
+        
+        $activeUnitPricesForCurrentType = $activePriceKeysMap[$currentBoxType] ?? [];
+
+        foreach ($activeUnitPricesForCurrentType as $unitPriceKey) {
+            $materialToggle = null; $itemSelectKey = null;
+            if (str_contains($unitPriceKey, '_board_')) { $materialToggle = 'includeBoard'; $itemSelectKey = 'selected_item_board';}
+            elseif (str_contains($unitPriceKey, '_cover_luar_')) { $materialToggle = 'includeCoverLuar'; $itemSelectKey = 'selected_item_cover_luar';}
+            elseif (str_contains($unitPriceKey, '_cover_dalam_')) { $materialToggle = 'includeCoverDalam'; $itemSelectKey = 'selected_item_cover_dalam';}
+            elseif (str_contains($unitPriceKey, '_busa')) { $materialToggle = 'includeBusa'; $itemSelectKey = 'selected_item_busa';}
+
+            $isMaterialIncluded = ($materialToggle && isset($allData[$materialToggle])) ? (bool)$allData[$materialToggle] : true;
+            $isItemSelected = ($itemSelectKey && isset($allData[$itemSelectKey])) ? !empty($allData[$itemSelectKey]) : true;
+
+            if ($isMaterialIncluded && $isItemSelected) {
+                $totalMaterialCostPerUnit += $this->getFloatVal($allData[$unitPriceKey] ?? 0);
+            }
+        }
+
+        $totalCostPerUnit = 0.0;
+        $totalCostPerUnit += $totalMaterialCostPerUnit;
+
+        $masterCostData = null;
+        $masterCostProductionRate = 0.0;
+        $masterCostKnifeRate = 0.0;
+        $masterCostProfitPercentage = 0.0;
+
+        if (!empty($allData['size'])) {
+            $masterCostData = MasterCost::where('size', $allData['size'])->first();
+            if ($masterCostData) {
+                $masterCostProductionRate = $this->getFloatVal($masterCostData->production_cost ?? 0); 
+                $masterCostKnifeRate = $this->getFloatVal($masterCostData->knife_cost ?? 0);
+                $masterCostProfitPercentage = $this->getFloatVal($masterCostData->profit ?? 0); 
+                $totalCostPerUnit += $masterCostProductionRate;
+            }
+        }
+        
+        $polyCostData = null;
+        $polyCostRate = 0.0;
+        if (!empty($allData['poly_dimension'])) {
+            $polyCostData = PolyCost::where('dimension', $allData['poly_dimension'])->first();
+            if ($polyCostData) {
+                $polyCostRate = $this->getFloatVal($polyCostData->cost ?? 0);
+                $totalCostPerUnit += $polyCostRate;
+            }
+        }
+        
+        $actualKnifeCostPerUnit = 0.0;
+        if (($allData['include_knife_cost'] ?? 'tidak_ada') === 'ada') {
+            $actualKnifeCostPerUnit = $masterCostKnifeRate;
+            $totalCostPerUnit += $actualKnifeCostPerUnit; 
+        }
+        
+        $finalTotalCostBeforeProfit = $totalCostPerUnit * $quantity;
+        $totalProfitAmount = $finalTotalCostBeforeProfit * ($masterCostProfitPercentage / 100);
+        $finalTotalCost = $finalTotalCostBeforeProfit + $totalProfitAmount;
+
+        // Mengisi properti publik untuk tampilan di Blade
+        $this->unitPriceBoardAtas = $this->getFloatVal($allData['unit_price_board_atas'] ?? null);
+        $this->unitPriceBoardBawah = $this->getFloatVal($allData['unit_price_board_bawah'] ?? null);
+        $this->unitPriceBoardKuping = $this->getFloatVal($allData['unit_price_board_kuping'] ?? null);
+        $this->unitPriceBoardLidah = $this->getFloatVal($allData['unit_price_board_lidah'] ?? null);
+        $this->unitPriceBoardSelongsong = $this->getFloatVal($allData['unit_price_board_selongsong'] ?? null);
+        $this->unitPriceClAtas = $this->getFloatVal($allData['unit_price_cover_luar_atas'] ?? null);
+        $this->unitPriceClBawah = $this->getFloatVal($allData['unit_price_cover_luar_bawah'] ?? null);
+        $this->unitPriceClKuping = $this->getFloatVal($allData['unit_price_cover_luar_kuping'] ?? null);
+        $this->unitPriceClLidah = $this->getFloatVal($allData['unit_price_cover_luar_lidah'] ?? null);
+        $this->unitPriceClSelongsong = $this->getFloatVal($allData['unit_price_cover_luar_selongsong'] ?? null);
+        $this->unitPriceCdAtas = $this->getFloatVal($allData['unit_price_cover_dalam_atas'] ?? null);
+        $this->unitPriceCdBawah = $this->getFloatVal($allData['unit_price_cover_dalam_bawah'] ?? null);
+        $this->unitPriceCdLidah = $this->getFloatVal($allData['unit_price_cover_dalam_lidah'] ?? null);
+        $this->unitPriceCdSelongsong = $this->getFloatVal($allData['unit_price_cover_dalam_selongsong'] ?? null);
+        $this->unitPriceBusa = $this->getFloatVal($allData['unit_price_busa'] ?? null);
+
+        // Simpan ringkasan biaya ke dalam $allDataArray (by reference) & properti publik
+        // Menggunakan nama key yang konsisten dengan apa yang diharapkan oleh saveFullCalculation
+        $allDataArray['total_material_cost_summary'] = $totalMaterialCostPerUnit * $quantity;
+        $this->summaryTotalMaterialCost = $allDataArray['total_material_cost_summary'];
+
+        $allDataArray['production_cost_summary'] = $masterCostProductionRate * $quantity;
+        $this->summaryTotalProductionWorkCost = $allDataArray['production_cost_summary'];
+
+        $allDataArray['poly_cost_summary'] = $polyCostRate * $quantity;
+        $this->summaryTotalPolyCost = $allDataArray['poly_cost_summary'];
+
+        $allDataArray['knife_cost_summary'] = $actualKnifeCostPerUnit * $quantity;
+        $this->summaryActualKnifeCost = $allDataArray['knife_cost_summary'];
+
+        $allDataArray['profit_amount_summary'] = $totalProfitAmount;
+        $this->summaryProfitAmount = $allDataArray['profit_amount_summary'];
+
+        $allDataArray['total_price_per_item_summary'] = ($quantity > 0) ? ($finalTotalCost / $quantity) : 0;
+        $this->summarySellingPricePerItem = $allDataArray['total_price_per_item_summary'];
+
+        $allDataArray['total_price_summary'] = $finalTotalCost;
+        $this->summaryTotalPrice = $allDataArray['total_price_summary'];
+        
+        // Format hasil total untuk tampilan
+        $this->calculationResult = "Rp " . number_format($finalTotalCost, 0, ',', '.');
+
+        if ($showNotification) {
+            $boxTypeLabel = $allData['box_type_selection'] ? Str::title(str_replace('_', ' ', $allData['box_type_selection'])) : 'Tidak Diketahui';
+            Notification::make()
+                ->title('Estimasi Harga Dihitung')
+                ->body('Total Estimasi: ' . $this->calculationResult . ' (Jenis Box: ' . $boxTypeLabel . ')')
+                ->success()
+                ->send();
+        }
     }
 
+    /**
+     * Orchestrator untuk menghitung harga final, dipanggil oleh tombol.
+     */
+    public function calculateFinalPrice(bool $showNotification = true): void
+    {
+        $currentState = $this->form->getState(); 
+        $calculatedDimensions = $this->calculateAllDimensionsAndQuantities($currentState);
+        
+        $dataForCalculations = array_merge($currentState, $calculatedDimensions);
+        $quantity = (int)($dataForCalculations['quantity'] ?? 1);
+        
+        $this->calculateAndStoreUnitPrices($dataForCalculations, $quantity); 
+        $this->form->fill($dataForCalculations); // Update UI dengan semua nilai yang dihitung
+        $this->_calculateFinalPriceInternal($dataForCalculations, $showNotification);
+    }
+
+    /**
+     * Mengupdate semua kalkulasi dan mengembalikan array data yang komprehensif.
+     * Dipanggil oleh livewire hooks atau saat penyimpanan.
+     */
+    public function updateAllCalculations(bool $showNotification = false): array
+    {
+        $currentState = $this->form->getState();
+        $calculatedDimensions = $this->calculateAllDimensionsAndQuantities($currentState);
+        $dataForCalculations = array_merge($currentState, $calculatedDimensions);
+        $quantity = (int)($dataForCalculations['quantity'] ?? 1);
+        
+        $this->calculateAndStoreUnitPrices($dataForCalculations, $quantity);
+        $this->form->fill($dataForCalculations); // Update UI
+        $this->_calculateFinalPriceInternal($dataForCalculations, $showNotification);
+
+        return $dataForCalculations; 
+    }
+
+    protected function clearCalculationResults(): void
+    {
+        $this->calculationResult = null;
+        $this->summaryTotalMaterialCost = null;
+        $this->summaryTotalProductionWorkCost = null;
+        $this->summaryTotalPolyCost = null;
+        $this->summaryActualKnifeCost = null;
+        $this->summaryProfitAmount = null;
+        $this->summarySellingPricePerItem = null;
+        $this->summaryTotalPrice = null;
+
+        $this->unitPriceBoardAtas = null;
+        $this->unitPriceBoardBawah = null;
+        $this->unitPriceBoardKuping = null;
+        $this->unitPriceBoardLidah = null;
+        $this->unitPriceBoardSelongsong = null;
+        $this->unitPriceClAtas = null;
+        $this->unitPriceClBawah = null;
+        $this->unitPriceClKuping = null;
+        $this->unitPriceClLidah = null;
+        $this->unitPriceClSelongsong = null;
+        $this->unitPriceCdAtas = null;
+        $this->unitPriceCdBawah = null;
+        $this->unitPriceCdLidah = null;
+        $this->unitPriceCdSelongsong = null;
+        $this->unitPriceBusa = null;
+    }
+
+    public function saveFullCalculation(): void
+    {
+        try {
+            $this->form->validate(); 
+            
+            // Panggil updateAllCalculations SEKALI untuk mendapatkan data komprehensif
+            // $dataToSave akan berisi unit_price_* dan summary_* yang benar
+            $dataToSave = $this->updateAllCalculations(false); // false agar tidak ada notifikasi duplikat jika tombol Hitung ditekan sebelum Simpan
+
+            $priceNumeric = $this->calculationResult ? $this->getFloatVal(preg_replace('/[^0-9,.]/', '', $this->calculationResult)) : 0.0;
+            
+            $selectedItemsIds = [];
+            if (!empty($dataToSave['selected_item_board'])) $selectedItemsIds['board'] = $dataToSave['selected_item_board'];
+            if (!empty($dataToSave['selected_item_cover_luar'])) $selectedItemsIds['cover_luar'] = $dataToSave['selected_item_cover_luar'];
+            if (!empty($dataToSave['selected_item_cover_dalam'])) $selectedItemsIds['cover_dalam'] = $dataToSave['selected_item_cover_dalam'];
+            if (!empty($dataToSave['selected_item_busa'])) $selectedItemsIds['busa'] = $dataToSave['selected_item_busa'];
+
+            $masterCostData = !empty($dataToSave['size']) ? MasterCost::where('size', $dataToSave['size'])->first() : null;
+            $polyCostData = !empty($dataToSave['poly_dimension']) ? PolyCost::where('dimension', $dataToSave['poly_dimension'])->first() : null;
+
+            $recordData = [
+                'product_name' => $dataToSave['product_name'] ?? '', 
+                'box_type_selection' => $dataToSave['box_type_selection'] ?? '',
+                'quantity' => $dataToSave['quantity'] ?? 0,
+                'include_knife_cost' => $dataToSave['include_knife_cost'] ?? 'tidak_ada',
+
+                'atas_panjang' => $this->getFloatVal($dataToSave['atas_panjang'] ?? null),
+                'atas_lebar' => $this->getFloatVal($dataToSave['atas_lebar'] ?? null),
+                'atas_tinggi' => $this->getFloatVal($dataToSave['atas_tinggi'] ?? null),
+                'bawah_panjang' => $this->getFloatVal($dataToSave['bawah_panjang'] ?? null),
+                'bawah_lebar' => $this->getFloatVal($dataToSave['bawah_lebar'] ?? null),
+                'bawah_tinggi' => $this->getFloatVal($dataToSave['bawah_tinggi'] ?? null),
+
+                'is_board_included' => (bool)($dataToSave['includeBoard'] ?? false),
+                'is_cover_luar_included' => (bool)($dataToSave['includeCoverLuar'] ?? false),
+                'is_cover_dalam_included' => (bool)($dataToSave['includeCoverDalam'] ?? false),
+                'is_busa_included' => (bool)($dataToSave['includeBusa'] ?? false),
+
+                'selected_items_ids' => json_encode($selectedItemsIds),
+
+                'raw_board_panjang_kertas' => $this->getFloatVal($dataToSave['board_panjang_kertas'] ?? null),
+                'raw_board_lebar_kertas' => $this->getFloatVal($dataToSave['board_lebar_kertas'] ?? null),
+                'raw_cl_panjang_kertas' => $this->getFloatVal($dataToSave['cover_luar_panjang_kertas'] ?? null),
+                'raw_cl_lebar_kertas' => $this->getFloatVal($dataToSave['cover_luar_lebar_kertas'] ?? null),
+                'raw_cd_panjang_kertas' => $this->getFloatVal($dataToSave['cover_dalam_panjang_kertas'] ?? null),
+                'raw_cd_lebar_kertas' => $this->getFloatVal($dataToSave['cover_dalam_lebar_kertas'] ?? null),
+                'raw_busa_panjang_material' => $this->getFloatVal($dataToSave['busa_panjang_kertas'] ?? null),
+                'raw_busa_lebar_material' => $this->getFloatVal($dataToSave['busa_lebar_kertas'] ?? null),
+
+                'dim_board_atas_p' => $this->getFloatVal($dataToSave['panjang_board_atas'] ?? null), 'dim_board_atas_l' => $this->getFloatVal($dataToSave['lebar_board_atas'] ?? null),
+                'dim_board_bawah_p' => $this->getFloatVal($dataToSave['panjang_board_bawah'] ?? null), 'dim_board_bawah_l' => $this->getFloatVal($dataToSave['lebar_board_bawah'] ?? null),
+                'dim_board_kuping_p' => $this->getFloatVal($dataToSave['panjang_board_kuping'] ?? null), 'dim_board_kuping_l' => $this->getFloatVal($dataToSave['lebar_board_kuping'] ?? null),
+                'dim_board_lidah_p' => $this->getFloatVal($dataToSave['panjang_board_lidah'] ?? null), 'dim_board_lidah_l' => $this->getFloatVal($dataToSave['lebar_board_lidah'] ?? null),
+                'dim_board_selongsong_p' => $this->getFloatVal($dataToSave['panjang_board_selongsong'] ?? null), 'dim_board_selongsong_l' => $this->getFloatVal($dataToSave['lebar_board_selongsong'] ?? null),
+
+                'dim_cl_atas_p' => $this->getFloatVal($dataToSave['panjang_cover_luar_atas'] ?? null), 'dim_cl_atas_l' => $this->getFloatVal($dataToSave['lebar_cover_luar_atas'] ?? null),
+                'dim_cl_bawah_p' => $this->getFloatVal($dataToSave['panjang_cover_luar_bawah'] ?? null), 'dim_cl_bawah_l' => $this->getFloatVal($dataToSave['lebar_cover_luar_bawah'] ?? null),
+                'dim_cl_kuping_p' => $this->getFloatVal($dataToSave['panjang_cover_luar_kuping'] ?? null), 'dim_cl_kuping_l' => $this->getFloatVal($dataToSave['lebar_cover_luar_kuping'] ?? null),
+                'dim_cl_lidah_p' => $this->getFloatVal($dataToSave['panjang_cover_luar_lidah'] ?? null), 'dim_cl_lidah_l' => $this->getFloatVal($dataToSave['lebar_cover_luar_lidah'] ?? null),
+                'dim_cl_selongsong_p' => $this->getFloatVal($dataToSave['panjang_cover_luar_selongsong'] ?? null), 'dim_cl_selongsong_l' => $this->getFloatVal($dataToSave['lebar_cover_luar_selongsong'] ?? null),
+
+                'dim_cd_atas_p' => $this->getFloatVal($dataToSave['panjang_cover_dalam_atas'] ?? null), 'dim_cd_atas_l' => $this->getFloatVal($dataToSave['lebar_cover_dalam_atas'] ?? null),
+                'dim_cd_bawah_p' => $this->getFloatVal($dataToSave['panjang_cover_dalam_bawah'] ?? null), 'dim_cd_bawah_l' => $this->getFloatVal($dataToSave['lebar_cover_dalam_bawah'] ?? null),
+                'dim_cd_lidah_p' => $this->getFloatVal($dataToSave['panjang_cover_dalam_lidah'] ?? null), 'dim_cd_lidah_l' => $this->getFloatVal($dataToSave['lebar_cover_dalam_lidah'] ?? null),
+                'dim_cd_selongsong_p' => $this->getFloatVal($dataToSave['panjang_cover_dalam_selongsong'] ?? null), 'dim_cd_selongsong_l' => $this->getFloatVal($dataToSave['lebar_cover_dalam_selongsong'] ?? null),
+
+                'dim_busa_p' => $this->getFloatVal($dataToSave['panjang_busa'] ?? null), 'dim_busa_l' => $this->getFloatVal($dataToSave['lebar_busa'] ?? null),
+
+                'final_qty_board_atas' => $dataToSave['final_qty_board_atas'] ?? null,
+                'final_qty_board_bawah' => $dataToSave['final_qty_board_bawah'] ?? null,
+                // ... (lanjutkan untuk semua final_qty_* dari $dataToSave) ...
+                'final_qty_busa' => $dataToSave['final_qty_busa'] ?? null,
+
+                'unit_price_board_atas' => $this->getFloatVal($dataToSave['unit_price_board_atas'] ?? null),
+                'unit_price_board_bawah' => $this->getFloatVal($dataToSave['unit_price_board_bawah'] ?? null),
+                // ... (lanjutkan untuk semua unit_price_* dari $dataToSave) ...
+                'unit_price_busa' => $this->getFloatVal($dataToSave['unit_price_busa'] ?? null),
+
+                'master_cost_size_selected' => $dataToSave['size'] ?? null,
+                'master_cost_production_rate' => $masterCostData ? $this->getFloatVal($masterCostData->production_cost ?? null) : null, 
+                'master_cost_knife_rate' => $masterCostData ? $this->getFloatVal($masterCostData->knife_cost ?? null) : null,
+                'master_cost_profit_percentage' => $masterCostData ? $this->getFloatVal($masterCostData->profit ?? null) : null, 
+                'poly_dimension_selected' => $dataToSave['poly_dimension'] ?? null,
+                'poly_cost_rate' => $polyCostData ? $this->getFloatVal($polyCostData->cost ?? null) : null,
+
+                // Menggunakan nama key yang konsisten dari $dataToSave
+                'summary_total_material_cost' => $this->getFloatVal($dataToSave['total_material_cost_summary'] ?? null),
+                'summary_total_production_work_cost' => $this->getFloatVal($dataToSave['production_cost_summary'] ?? null),
+                'summary_total_poly_cost' => $this->getFloatVal($dataToSave['poly_cost_summary'] ?? null),
+                'summary_actual_knife_cost' => $this->getFloatVal($dataToSave['knife_cost_summary'] ?? null), 
+                'summary_profit_percentage_applied' => $masterCostData ? $this->getFloatVal($masterCostData->profit ?? null) : null, 
+                'summary_total_profit_amount' => $this->getFloatVal($dataToSave['profit_amount_summary'] ?? null),
+                'summary_selling_price_per_item' => $this->getFloatVal($dataToSave['total_price_per_item_summary'] ?? null),
+
+                'total_price_estimate_numeric' => $priceNumeric,
+                'total_price_estimate_display' => $this->calculationResult,
+                'notes' => $dataToSave['notes'] ?? null,
+            ];
+            
+            // Pastikan semua final_qty dan unit_price ada di recordData
+            $all_final_qty_keys = [
+                'final_qty_board_atas', 'final_qty_board_bawah', 'final_qty_board_kuping', 'final_qty_board_lidah', 'final_qty_board_selongsong',
+                'final_qty_cl_atas', 'final_qty_cl_bawah', 'final_qty_cl_kuping', 'final_qty_cl_lidah', 'final_qty_cl_selongsong',
+                'final_qty_cd_atas', 'final_qty_cd_bawah', 'final_qty_cd_lidah', 'final_qty_cd_selongsong', 'final_qty_busa',
+            ];
+            foreach($all_final_qty_keys as $key) {
+                $recordData[$key] = $dataToSave[$key] ?? null;
+            }
+
+            $all_unit_price_keys = [
+                'unit_price_board_atas', 'unit_price_board_bawah', 'unit_price_board_kuping', 'unit_price_board_lidah', 'unit_price_board_selongsong',
+                'unit_price_cl_atas', 'unit_price_cl_bawah', 'unit_price_cl_kuping', 'unit_price_cl_lidah', 'unit_price_cl_selongsong',
+                'unit_price_cd_atas', 'unit_price_cd_bawah', 'unit_price_cd_lidah', 'unit_price_cd_selongsong', 'unit_price_busa',
+            ];
+            foreach($all_unit_price_keys as $key) {
+                $recordData[$key] = $this->getFloatVal($dataToSave[$key] ?? null);
+            }
+
+
+            DB::beginTransaction();
+            PriceCalculation::create($recordData);
+            DB::commit();
+
+            Notification::make()
+                ->title('Kalkulasi Berhasil Disimpan')
+                ->body('Data kalkulasi harga untuk ' . ($recordData['product_name'] ?? 'produk ini') . ' telah berhasil disimpan.')
+                ->success()
+                ->send();
+
+            $this->resetCalculation();
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            DB::rollBack();
+            Notification::make()
+                ->title('Gagal Menyimpan Kalkulasi (Validasi)')
+                ->body('Terjadi kesalahan validasi pada formulir. Mohon periksa kembali input Anda.') // Pesan error spesifik bisa terlalu teknis
+                ->danger()
+                ->send();
+            Log::error('Filament Form Validation Failed: ' . $e->getMessage(), ['errors' => $e->errors(), 'data' => $this->form->getState()]);
+            throw $e;
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Notification::make()
+                ->title('Gagal Menyimpan Kalkulasi')
+                ->body('Terjadi kesalahan sistem saat menyimpan data: ' . $e->getMessage())
+                ->danger()
+                ->send();
+            Log::error('Error saving price calculation: ' . $e->getMessage(), ['data' => $recordData ?? [], 'exception' => $e->getTraceAsString()]);
+        }
+    }
+
+    protected function calculateSheetQuantities($itemPanjang, $itemLebar, $panjangKertas, $lebarKertas): array
+    {
+        $itemPanjang = $this->getFloatVal($itemPanjang);
+        $itemLebar = $this->getFloatVal($itemLebar);
+        $panjangKertas = $this->getFloatVal($panjangKertas);
+        $lebarKertas = $this->getFloatVal($lebarKertas);
+
+        if ($itemPanjang <= 0 || $itemLebar <= 0 || $panjangKertas <= 0 || $lebarKertas <= 0) {
+            return ['qty1' => 0, 'qty2' => 0, 'final_qty' => 0];
+        }
+
+        $qty1_panjang_wise = floor($panjangKertas / $itemPanjang);
+        $qty1_lebar_wise = floor($lebarKertas / $itemLebar);
+        $qty1 = $qty1_panjang_wise * $qty1_lebar_wise;
+
+        $qty2_panjang_wise = floor($panjangKertas / $itemLebar);  
+        $qty2_lebar_wise = floor($lebarKertas / $itemPanjang);  
+        $qty2 = $qty2_panjang_wise * $qty2_lebar_wise;
+        
+        $finalQty = max($qty1, $qty2);
+
+        return ['qty1' => (int)$qty1, 'qty2' => (int)$qty2, 'final_qty' => (int)$finalQty];
+    }
+
+    public function resetCalculation(): void
+    {
+        $this->resetErrorBag(); 
+        $this->form->fill([
+            'quantity' => 1,
+            'include_knife_cost' => 'tidak_ada',
+            'includeBoard' => false,
+            'includeCoverLuar' => false,
+            'includeCoverDalam' => false,
+            'includeBusa' => false,
+            'box_type_selection' => 'TAB',
+            'product_name' => null,
+            'size' => null,
+            'poly_dimension' => null,
+            'atas_panjang' => null, 'atas_lebar' => null, 'atas_tinggi' => null,
+            'bawah_panjang' => null, 'bawah_lebar' => null, 'bawah_tinggi' => null,
+            'selected_item_board' => null,
+            'selected_item_cover_luar' => null,
+            'selected_item_cover_dalam' => null,
+            'selected_item_busa' => null,
+            // Pastikan semua field yang mungkin perlu direset ada di sini
+            // atau panggil updateAllCalculations untuk mereset field kalkulasi
+        ]);
+        $this->clearCalculationResults(); 
+        // Panggil updateAllCalculations untuk memastikan field display kalkulasi juga direset ke 0
+        $this->updateAllCalculations(false); 
+
+
+        Notification::make()->title('Formulir direset!')->success()->send();
+    }
+
+    protected function getFormActions(): array
+    {
+        return [
+            Action::make('calculateFinalPrice')
+                ->label('Hitung Estimasi Harga')
+                ->action('calculateFinalPrice')  
+                ->color('success')
+                ->extraAttributes(['class' => 'filament-button-submit']), 
+            Action::make('saveFullCalculation')
+                ->label('Simpan Perhitungan')
+                ->action('saveFullCalculation')
+                ->color('warning')
+                ->requiresConfirmation()  
+        ];
+    }
+
+    // Definisi Form Filament (tidak diubah dari kode Anda)
     public function form(Form $form): Form
     {
-        // ... (Definisi form schema tetap sama seperti sebelumnya)
-        // Helper untuk membuat TextInput dimensi input
         $dimensionInputSchema = function (string $name, string|\Closure $label): TextInput {
             return TextInput::make($name)
                 ->label($label)
                 ->numeric()
-                ->nullable()
+                ->nullable() 
                 ->suffix('cm')
                 ->minValue(0)
                 ->step(0.1)
                 ->placeholder('0.0')
                 ->live(onBlur: true)
-                ->afterStateUpdated(fn ($livewire) => $livewire->updateAllCalculations())
-                ->columnSpan(1);
+                ->afterStateUpdated(fn ($livewire) => $livewire->updateAllCalculations());
         };
 
-        // Helper untuk membuat TextInput dimensi display (disabled)
         $dimensionDisplaySchema = function (string $name, string|\Closure $label, string $suffix = 'cm'): TextInput {
             return TextInput::make($name)
                 ->label($label)
@@ -583,21 +974,20 @@ class ProductionCalculator extends Page implements HasForms
                 ->placeholder('0');
         };
         
-        // Helper untuk Toggle komponen
         $componentToggleSchema = function (string $name, string $label) {
             return Forms\Components\Toggle::make($name)
                 ->label($label)
                 ->live()
+                ->reactive() 
                 ->afterStateUpdated(function (Get $get, Set $set, $livewire) use ($name) {
                     if (!$get($name)) {
                         $itemSelectKey = 'selected_item_' . strtolower(str_replace('include', '', $name));
-                        $set($itemSelectKey, null);
+                        $set($itemSelectKey, null); 
                     }
                     $livewire->updateAllCalculations();
                 });
         };
 
-        // Helper untuk Select Item Produksi per komponen
         $componentItemSelectSchema = function(string $name, string $label, string $categoryName, string $mainToggleName) {
             return Forms\Components\Select::make($name)
                 ->label($label)
@@ -609,6 +999,7 @@ class ProductionCalculator extends Page implements HasForms
                 ->searchable()
                 ->placeholder('Pilih Item '. $label)
                 ->hidden(fn (Get $get): bool => !$get($mainToggleName) )
+                ->required(fn(Get $get) => $get($mainToggleName)) 
                 ->afterStateUpdated(fn ($livewire) => $livewire->updateAllCalculations());
         };
 
@@ -622,7 +1013,6 @@ class ProductionCalculator extends Page implements HasForms
             'Double WallTreasury' => 'Double Wall Treasury'
         ];
 
-        // Helper untuk label dinamis berdasarkan jenis box
         $getDynamicLabel = function(Get $get, string $part, string $defaultPrefix = "Box"): string {
             $boxType = $get('box_type_selection');
             if ($part === 'atas') {
@@ -636,13 +1026,12 @@ class ProductionCalculator extends Page implements HasForms
             return $defaultPrefix . " " . Str::title($part);
         };
         
-        // Helper untuk visibility bagian form berdasarkan jenis box
         $isPartVisible = function(Get $get, string $part): bool {
             $boxType = $get('box_type_selection');
             if ($part === 'atas') return in_array($boxType, ['TAB', 'BUSA', 'Double WallTreasury', 'JENDELA', 'SELONGSONG']);
             if ($part === 'bawah') return in_array($boxType, ['TAB', 'BUSA', 'Double WallTreasury', 'JENDELA', 'BUKU PITA', 'BUKU MAGNET', 'SELONGSONG']);
             if ($part === 'lidah') return in_array($boxType, ['BUKU PITA', 'BUKU MAGNET']);
-            if ($part === 'kuping_display') return $boxType === 'JENDELA'; 
+            if ($part === 'kuping_display') return $boxType === 'JENDELA';  
             if ($part === 'selongsong_display') return $boxType === 'SELONGSONG';
             return false;
         };
@@ -650,12 +1039,51 @@ class ProductionCalculator extends Page implements HasForms
         $sections = [
             Section::make('Informasi Produk')
                 ->schema([
-                    Select::make('box_type_selection')->label('Jenis Box')->options($boxTypeOptions)->default('TAB')->live()->afterStateUpdated(fn ($livewire) => $livewire->updateAllCalculations())->columnSpan(2),
-                    TextInput::make('product_name')->label('Nama Produk')->required()->live(onBlur: true)->columnSpan(1),
-                    Select::make('size')->label('Ukuran Box (Master Cost)')->options(MasterCost::pluck('size', 'size')->toArray())->required()->live()->columnSpan(1),
-                    Select::make('poly_dimension')->label('Dimensi Poly')->options(fn () => PolyCost::all()->pluck('dimension', 'dimension'))->nullable()->live()->columnSpan(1),
-                    Select::make('include_knife_cost')->label('Termasuk Ongkos Pisau')->options(['ada' => 'Ada','tidak_ada' => 'Tidak Ada'])->required()->default('tidak_ada')->columnSpan(1),
-                    TextInput::make('quantity')->label('Jumlah Pesan')->numeric()->default(1)->minValue(1)->required()->live(onBlur: true)->afterStateUpdated(fn ($livewire) => $livewire->updateAllCalculations())->columnSpan(1),
+                    Select::make('box_type_selection')
+                        ->label('Jenis Box')
+                        ->options($boxTypeOptions)
+                        ->default('TAB')
+                        ->required()
+                        ->live()
+                        ->afterStateUpdated(fn ($livewire) => $livewire->updateAllCalculations())
+                        ->columnSpan(2),
+                    TextInput::make('product_name')
+                        ->label('Nama Produk')
+                        ->required()
+                        ->live(onBlur: true)
+                        ->afterStateUpdated(fn ($livewire) => $livewire->updateAllCalculations())
+                        ->columnSpan(1),
+                    Select::make('size')
+                        ->label('Ukuran Box (Master Cost)')
+                        ->options(MasterCost::pluck('size', 'size')->toArray())
+                        ->required()
+                        ->live()
+                        ->afterStateUpdated(fn ($livewire) => $livewire->updateAllCalculations())
+                        ->columnSpan(1),
+                    Select::make('poly_dimension')
+                        ->label('Dimensi Poly')
+                        ->options(fn () => PolyCost::all()->pluck('dimension', 'dimension'))
+                        ->nullable()
+                        ->live()
+                        ->afterStateUpdated(fn ($livewire) => $livewire->updateAllCalculations())
+                        ->columnSpan(1),
+                    Select::make('include_knife_cost')
+                        ->label('Termasuk Ongkos Pisau')
+                        ->options(['ada' => 'Ada','tidak_ada' => 'Tidak Ada'])
+                        ->required()
+                        ->default('tidak_ada')
+                        ->live()
+                        ->afterStateUpdated(fn ($livewire) => $livewire->updateAllCalculations())
+                        ->columnSpan(1),
+                    TextInput::make('quantity')
+                        ->label('Jumlah Pesan')
+                        ->numeric()
+                        ->default(1)
+                        ->minValue(1)
+                        ->required()
+                        ->live(onBlur: true)
+                        ->afterStateUpdated(fn ($livewire) => $livewire->updateAllCalculations())
+                        ->columnSpan(1),
                 ])->columns(3),
 
             Section::make('Dimensi Box Input')
@@ -708,7 +1136,7 @@ class ProductionCalculator extends Page implements HasForms
                         Group::make([$dimensionDisplaySchema('panjang_cover_luar_lidah', "Pjg. Lidah"), $dimensionDisplaySchema('lebar_cover_luar_lidah', "Lbr. Lidah")])->columns(2)->hidden(fn(Get $get) => !in_array($get('box_type_selection'), ['BUKU PITA', 'BUKU MAGNET'])),
                     ]),
                     Fieldset::make('Dimensi Cover Dalam')->columns(2)->hidden(fn(Get $get) => !$get('includeCoverDalam') || empty($get('selected_item_cover_dalam')))->schema([
-                        Group::make([$dimensionDisplaySchema('panjang_cover_dalam_atas', fn(Get $get) => "Pjg. ".$getDynamicLabel($get, 'atas', 'Box')), $dimensionDisplaySchema('lebar_cover_dalam_atas', fn(Get $get) => "Lbr. ".$getDynamicLabel($get, 'atas', 'Box'))])->columns(2)->hidden(fn(Get $get) => !in_array($get('box_type_selection'), ['TAB', 'BUSA', 'Double WallTreasury', 'JENDELA'])),
+                        Group::make([$dimensionDisplaySchema('panjang_cover_dalam_atas', fn(Get $get) => "Pjg. ".$getDynamicLabel($get, 'atas', 'Box')), $dimensionDisplaySchema('lebar_cover_dalam_atas', fn(Get $get) => "Lbr. ".$getDynamicLabel($get, 'atas', 'Box'))])->columns(2)->hidden(fn(Get $get) => !in_array($get('box_type_selection'), ['TAB', 'BUSA', 'Double WallTreasury', 'JENDELA'])),  
                         Group::make([$dimensionDisplaySchema('panjang_cover_dalam_selongsong', "Pjg. Selongsong"), $dimensionDisplaySchema('lebar_cover_dalam_selongsong', "Lbr. Selongsong")])->columns(2)->hidden(fn(Get $get) => $get('box_type_selection') !== 'SELONGSONG'),
                         Group::make([$dimensionDisplaySchema('panjang_cover_dalam_bawah', "Pjg. Box Bawah"), $dimensionDisplaySchema('lebar_cover_dalam_bawah', "Lbr. Box Bawah")])->columns(2)->hidden(fn(Get $get) => !$isPartVisible($get, 'bawah')),
                         Group::make([$dimensionDisplaySchema('panjang_cover_dalam_lidah', "Pjg. Lidah"), $dimensionDisplaySchema('lebar_cover_dalam_lidah', "Lbr. Lidah")])->columns(2)->hidden(fn(Get $get) => !in_array($get('box_type_selection'), ['BUKU PITA', 'BUKU MAGNET'])),
@@ -748,7 +1176,7 @@ class ProductionCalculator extends Page implements HasForms
                     ]),
                     Fieldset::make('Kuantitas Cover Dalam')->columns(1)->hidden(fn(Get $get) => !$get('includeCoverDalam') || empty($get('selected_item_cover_dalam')))->schema([
                         Group::make([$dimensionDisplaySchema('cover_dalam_panjang_kertas', 'Pjg. Kertas'), $dimensionDisplaySchema('cover_dalam_lebar_kertas', 'Lbr. Kertas')])->columns(2),
-                        Placeholder::make('qty_cd_atas_label')->label(fn(Get $get) => "Kuantitas ".$getDynamicLabel($get, 'atas', 'Box')." (CD)")->hidden(fn(Get $get) => !in_array($get('box_type_selection'), ['TAB', 'BUSA', 'Double WallTreasury', 'JENDELA'])), 
+                        Placeholder::make('qty_cd_atas_label')->label(fn(Get $get) => "Kuantitas ".$getDynamicLabel($get, 'atas', 'Box')." (CD)")->hidden(fn(Get $get) => !in_array($get('box_type_selection'), ['TAB', 'BUSA', 'Double WallTreasury', 'JENDELA'])),  
                         Group::make([$dimensionDisplaySchema('qty1_cover_dalam_atas', 'Q1', 'pcs'), $dimensionDisplaySchema('qty2_cover_dalam_atas', 'Q2', 'pcs'), $dimensionDisplaySchema('final_qty_cover_dalam_atas', 'Final', 'pcs')])->columns(3)->hidden(fn(Get $get) => !in_array($get('box_type_selection'), ['TAB', 'BUSA', 'Double WallTreasury', 'JENDELA'])),
                         Placeholder::make('qty_cd_selongsong_label')->label("Kuantitas Selongsong (CD)")->hidden(fn(Get $get) => $get('box_type_selection') !== 'SELONGSONG'),
                         Group::make([$dimensionDisplaySchema('qty1_cover_dalam_selongsong', 'Q1', 'pcs'), $dimensionDisplaySchema('qty2_cover_dalam_selongsong', 'Q2', 'pcs'), $dimensionDisplaySchema('final_qty_cover_dalam_selongsong', 'Final', 'pcs')])->columns(3)->hidden(fn(Get $get) => $get('box_type_selection') !== 'SELONGSONG'),
@@ -797,119 +1225,5 @@ class ProductionCalculator extends Page implements HasForms
         ];
         return $form->schema($sections)->statePath('data');
     }
-
-    public function calculateFinalPrice(): void
-    {
-        $allData = $this->form->getState(); 
-        $totalMaterialCostPerUnit = 0;
-        $quantity = (int)($allData['quantity'] ?? 1);
-        $currentBoxType = $allData['box_type_selection'] ?? null;
-
-        $activePriceKeysMap = [
-            'TAB' => ['unit_price_board_atas', 'unit_price_board_bawah', 'unit_price_cover_luar_atas', 'unit_price_cover_luar_bawah', 'unit_price_cover_dalam_atas', 'unit_price_cover_dalam_bawah', 'unit_price_busa'],
-            'BUSA' => ['unit_price_board_atas', 'unit_price_board_bawah', 'unit_price_cover_luar_atas', 'unit_price_cover_luar_bawah', 'unit_price_cover_dalam_atas', 'unit_price_cover_dalam_bawah', 'unit_price_busa'],
-            'Double WallTreasury' => ['unit_price_board_atas', 'unit_price_board_bawah', 'unit_price_cover_luar_atas', 'unit_price_cover_luar_bawah', 'unit_price_cover_dalam_atas', 'unit_price_cover_dalam_bawah', 'unit_price_busa'],
-            'JENDELA' => ['unit_price_board_kuping', 'unit_price_board_bawah', 'unit_price_cover_luar_kuping', 'unit_price_cover_luar_bawah', 'unit_price_cover_dalam_atas', 'unit_price_cover_dalam_bawah', 'unit_price_busa'], 
-            'BUKU PITA' => ['unit_price_board_lidah', 'unit_price_board_bawah', 'unit_price_cover_luar_lidah', 'unit_price_cover_luar_bawah', 'unit_price_cover_dalam_lidah', 'unit_price_cover_dalam_bawah', 'unit_price_busa'],
-            'BUKU MAGNET' => ['unit_price_board_lidah', 'unit_price_board_bawah', 'unit_price_cover_luar_lidah', 'unit_price_cover_luar_bawah', 'unit_price_cover_dalam_lidah', 'unit_price_cover_dalam_bawah', 'unit_price_busa'],
-            'SELONGSONG' => ['unit_price_board_selongsong', 'unit_price_board_bawah', 'unit_price_cover_luar_selongsong', 'unit_price_cover_luar_bawah', 'unit_price_cover_dalam_selongsong', 'unit_price_cover_dalam_bawah', 'unit_price_busa'],
-        ];
-        
-        $activeUnitPricesForCurrentType = $activePriceKeysMap[$currentBoxType] ?? [];
-
-        foreach ($activeUnitPricesForCurrentType as $unitPriceKey) {
-            $materialToggle = null; $itemSelectKey = null;
-            if (str_contains($unitPriceKey, '_board_')) { $materialToggle = 'includeBoard'; $itemSelectKey = 'selected_item_board';}
-            elseif (str_contains($unitPriceKey, '_cover_luar_')) { $materialToggle = 'includeCoverLuar'; $itemSelectKey = 'selected_item_cover_luar';}
-            elseif (str_contains($unitPriceKey, '_cover_dalam_')) { $materialToggle = 'includeCoverDalam'; $itemSelectKey = 'selected_item_cover_dalam';}
-            elseif (str_contains($unitPriceKey, '_busa')) { $materialToggle = 'includeBusa'; $itemSelectKey = 'selected_item_busa';}
-
-            $isMaterialIncluded = $materialToggle ? ($allData[$materialToggle] ?? false) : true; 
-            $isItemSelected = $itemSelectKey ? !empty($allData[$itemSelectKey]) : true; 
-
-            if ($isMaterialIncluded && $isItemSelected && !empty($allData[$unitPriceKey]) && is_numeric($allData[$unitPriceKey])) {
-                $totalMaterialCostPerUnit += (float)$allData[$unitPriceKey];
-            }
-        }
-
-        $totalMaterialCost = $totalMaterialCostPerUnit * $quantity;
-        $otherCosts = 0;
-        if (!empty($allData['size'])) {
-            $masterCostData = MasterCost::where('size', $allData['size'])->first();
-            if ($masterCostData) $otherCosts += (float)($masterCostData->cost_per_unit ?? 0) * $quantity; 
-        }
-        if (!empty($allData['poly_dimension'])) {
-            $polyCostData = PolyCost::where('dimension', $allData['poly_dimension'])->first();
-            if ($polyCostData) $otherCosts += (float)($polyCostData->cost ?? 0) * $quantity; 
-        }
-        // if (($allData['include_knife_cost'] ?? 'tidak_ada') === 'ada') {
-        //     if (!defined('KNIFE_COST')) { define('KNIFE_COST', 50000); } // Contoh biaya pisau
-        //     $otherCosts += KNIFE_COST;
-        // }
-        
-        $finalTotalCost = $totalMaterialCost + $otherCosts;
-        $this->calculationResult = "Rp " . number_format($finalTotalCost, 0, ',', '.');
-        
-        $boxTypeLabel = $allData['box_type_selection'] ? Str::title(str_replace('_', ' ', $allData['box_type_selection'])) : 'Tidak Diketahui';
-        Notification::make()->title('Estimasi Harga Dihitung')->body($this->calculationResult . ' (Jenis Box: ' . $boxTypeLabel . ')')->success()->send();
-    }
-
-    public function saveFullCalculation(): void
-    {
-        $dataToSave = $this->form->getState();
-        $priceNumeric = $this->calculationResult ? (float)preg_replace('/[Rp. ]/', '', $this->calculationResult) : 0;
-        $dataToSave['total_price_estimate_numeric'] = $priceNumeric;
-        $dataToSave['total_price_estimate_display'] = $this->calculationResult;
-        
-        // PriceCalculation::create($dataToSave); 
-        
-        Notification::make()
-            ->title('Kalkulasi Siap Disimpan')
-            ->body('Data kalkulasi (sebagian): ' . json_encode(Arr::only($dataToSave, [
-                'box_type_selection', 'quantity', 'atas_panjang', 'atas_lebar', 'atas_tinggi', 
-                'bawah_panjang', 'bawah_lebar', 'bawah_tinggi', 
-                'total_price_estimate_display' 
-            ])))
-            ->success()
-            ->send();
-    }
-
-    protected function calculateSheetQuantities($itemPanjang, $itemLebar, $panjangKertas, $lebarKertas): array
-    {
-        $itemPanjang = $this->getFloatVal($itemPanjang);
-        $itemLebar = $this->getFloatVal($itemLebar);
-        $panjangKertas = $this->getFloatVal($panjangKertas);
-        $lebarKertas = $this->getFloatVal($lebarKertas);
-
-        if ($itemPanjang <= 0 || $itemLebar <= 0 || $panjangKertas <= 0 || $lebarKertas <= 0) {
-            return ['qty1' => 0, 'qty2' => 0, 'final_qty' => 0];
-        }
-
-        $qty1_panjang_wise = floor($panjangKertas / $itemPanjang);
-        $qty1_lebar_wise = floor($lebarKertas / $itemLebar);
-        $qty1 = $qty1_panjang_wise * $qty1_lebar_wise;
-
-        $qty2_panjang_wise = floor($panjangKertas / $itemLebar); 
-        $qty2_lebar_wise = floor($lebarKertas / $itemPanjang); 
-        $qty2 = $qty2_panjang_wise * $qty2_lebar_wise;
-        
-        $finalQty = max($qty1, $qty2);
-
-        return ['qty1' => (int)$qty1, 'qty2' => (int)$qty2, 'final_qty' => (int)$finalQty];
-    }
-
-    protected function getFormActions(): array
-    {
-        return [
-            Action::make('calculateFinalPrice')
-                ->label('Hitung Estimasi Harga')
-                ->action('calculateFinalPrice') 
-                ->color('success'),
-            Action::make('saveFullCalculation')
-                ->label('Simpan Perhitungan')
-                ->action('saveFullCalculation')
-                ->color('warning')
-                ->requiresConfirmation() 
-        ];
-    }
 }
+
