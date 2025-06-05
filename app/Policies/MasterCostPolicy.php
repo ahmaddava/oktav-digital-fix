@@ -3,10 +3,10 @@
 namespace App\Policies;
 
 use App\Models\User;
-use App\Models\Product;
+use App\Models\MasterCost;
 use Illuminate\Auth\Access\HandlesAuthorization;
 
-class ProductPolicy
+class MasterCostPolicy
 {
     use HandlesAuthorization;
 
@@ -15,15 +15,15 @@ class ProductPolicy
      */
     public function viewAny(User $user): bool
     {
-        return $user->can('view_any_product');
+        return $user->can('view_any_master::cost');
     }
 
     /**
      * Determine whether the user can view the model.
      */
-    public function view(User $user, Product $product): bool
+    public function view(User $user, MasterCost $masterCost): bool
     {
-        return $user->can('view_product');
+        return $user->can('view_master::cost');
     }
 
     /**
@@ -31,23 +31,23 @@ class ProductPolicy
      */
     public function create(User $user): bool
     {
-        return $user->can('create_product');
+        return $user->can('create_master::cost');
     }
 
     /**
      * Determine whether the user can update the model.
      */
-    public function update(User $user, Product $product): bool
+    public function update(User $user, MasterCost $masterCost): bool
     {
-        return $user->can('update_product');
+        return $user->can('update_master::cost');
     }
 
     /**
      * Determine whether the user can delete the model.
      */
-    public function delete(User $user, Product $product): bool
+    public function delete(User $user, MasterCost $masterCost): bool
     {
-        return $user->can('delete_product');
+        return $user->can('delete_master::cost');
     }
 
     /**
@@ -55,15 +55,15 @@ class ProductPolicy
      */
     public function deleteAny(User $user): bool
     {
-        return $user->can('delete_any_product');
+        return $user->can('delete_any_master::cost');
     }
 
     /**
      * Determine whether the user can permanently delete.
      */
-    public function forceDelete(User $user, Product $product): bool
+    public function forceDelete(User $user, MasterCost $masterCost): bool
     {
-        return $user->can('{{ ForceDelete }}');
+        return $user->can('force_delete_master::cost');
     }
 
     /**
@@ -71,15 +71,15 @@ class ProductPolicy
      */
     public function forceDeleteAny(User $user): bool
     {
-        return $user->can('{{ ForceDeleteAny }}');
+        return $user->can('force_delete_any_master::cost');
     }
 
     /**
      * Determine whether the user can restore.
      */
-    public function restore(User $user, Product $product): bool
+    public function restore(User $user, MasterCost $masterCost): bool
     {
-        return $user->can('{{ Restore }}');
+        return $user->can('restore_master::cost');
     }
 
     /**
@@ -87,15 +87,15 @@ class ProductPolicy
      */
     public function restoreAny(User $user): bool
     {
-        return $user->can('{{ RestoreAny }}');
+        return $user->can('restore_any_master::cost');
     }
 
     /**
      * Determine whether the user can replicate.
      */
-    public function replicate(User $user, Product $product): bool
+    public function replicate(User $user, MasterCost $masterCost): bool
     {
-        return $user->can('{{ Replicate }}');
+        return $user->can('replicate_master::cost');
     }
 
     /**
@@ -103,6 +103,6 @@ class ProductPolicy
      */
     public function reorder(User $user): bool
     {
-        return $user->can('{{ Reorder }}');
+        return $user->can('reorder_master::cost');
     }
 }

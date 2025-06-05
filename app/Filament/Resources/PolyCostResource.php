@@ -17,6 +17,14 @@ class PolyCostResource extends Resource
     protected static ?string $navigationLabel = 'Biaya Poly';
     protected static ?string $navigationIcon = 'heroicon-o-cube';
 
+    public static function getPermissionPrefixes(): array
+    {
+        return [
+            'view', 'view_any', 'create', 'update', 'delete', 'delete_any',
+            'export',
+        ];
+    }
+
     public static function form(Form $form): Form
     {
         return $form->schema([

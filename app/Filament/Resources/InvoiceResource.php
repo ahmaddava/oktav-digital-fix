@@ -59,6 +59,7 @@ class InvoiceResource extends Resource implements HasShieldPermissions
             'view', 'view_any', 'create', 'update', 'delete', 'delete_any',
         ];
     }
+    
 
     
 public static function form(Form $form): Form

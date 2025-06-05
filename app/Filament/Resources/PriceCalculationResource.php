@@ -22,6 +22,14 @@ class PriceCalculationResource extends Resource
     protected static ?string $navigationLabel = 'Riwayat Kalkulasi';
     protected static ?string $pluralModelLabel = 'Riwayat Kalkulasi';
 
+    public static function getPermissionPrefixes(): array
+    {
+        return [
+            'view', 'view_any', 'create', 'update', 'delete', 'delete_any',
+            'export',
+        ];
+    }
+
     public static function form(Form $form): Form
     {
         return $form

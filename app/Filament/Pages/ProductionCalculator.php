@@ -35,6 +35,11 @@ class ProductionCalculator extends Page implements HasForms
     protected static ?string $navigationIcon = 'heroicon-o-calculator';
     protected static ?string $navigationLabel = 'Kalkulator Harga';
     protected static string $view = 'filament.pages.production-calculator';
+    
+    public static function canAccess(): bool
+    {
+        return \Illuminate\Support\Facades\Auth::user()->can('page_ProductionCalculator');
+    }
 
     public bool $showSummaryAfterSave = false;
 

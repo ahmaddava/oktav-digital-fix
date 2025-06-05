@@ -26,7 +26,6 @@ class ProductResource extends Resource implements HasShieldPermissions
     {
         return [
             'view', 'view_any', 'create', 'update', 'delete', 'delete_any',
-            // Tambahkan permission kustom, misalnya 'export'
             'export',
         ];
     }
