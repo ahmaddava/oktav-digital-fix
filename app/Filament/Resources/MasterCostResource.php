@@ -41,10 +41,6 @@ class MasterCostResource extends Resource
                 ->label('Ongkos Pisau')
                 ->numeric()
                 ->required(),
-            Forms\Components\TextInput::make('profit')
-                ->label('Profit')
-                ->numeric()
-                ->required(),
         ]);
     }
 
@@ -54,7 +50,6 @@ class MasterCostResource extends Resource
             Tables\Columns\TextColumn::make('size')->label('Ukuran')->sortable(),
             Tables\Columns\TextColumn::make('production_cost')->label('Ongkos Produksi')->money('IDR'),
             Tables\Columns\TextColumn::make('knife_cost')->label('Ongkos Pisau')->money('IDR'),
-            Tables\Columns\TextColumn::make('profit')->label('Profit')->money('IDR'),
         ])
         ->actions([
             Tables\Actions\EditAction::make(),

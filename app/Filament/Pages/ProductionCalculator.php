@@ -41,7 +41,7 @@ class ProductionCalculator extends Page implements HasForms
     // Properti publik untuk binding form
     public ?array $data = [];
 
-    // Properti untuk toggle include, pastikan ini ada di $data juga
+    // Properti untuk toggle include
     public bool $includeBoard = false;
     public bool $includeCoverLuar = false;
     public bool $includeCoverDalam = false;
@@ -57,6 +57,7 @@ class ProductionCalculator extends Page implements HasForms
     public ?float $summaryProfitAmount = null;
     public ?float $summarySellingPricePerItem = null;
     public ?float $summaryTotalPrice = null;
+    public ?float $displayAppliedProfitPercentage = null; // Untuk menampilkan profit yg diaplikasikan di Blade
 
     // Properti publik untuk menampilkan harga satuan per komponen jadi
     public ?float $unitPriceBoardAtas = null;
@@ -77,9 +78,7 @@ class ProductionCalculator extends Page implements HasForms
 
     private function getFloatVal($value): float
     {
-        // Hapus semua karakter non-numerik kecuali titik dan koma
         $cleanedValue = preg_replace('/[^\d.,]/', '', (string)$value);
-        // Ganti koma dengan titik untuk konsistensi desimal
         $cleanedValue = str_replace(',', '.', $cleanedValue);
         return is_numeric($cleanedValue) ? (float)$cleanedValue : 0.0;
     }
@@ -88,6 +87,7 @@ class ProductionCalculator extends Page implements HasForms
     {
         $this->form->fill([
             'quantity' => 1,
+            'custom_profit_percentage' => null, // Field baru untuk profit kustom
             'include_knife_cost' => 'tidak_ada',
             'includeBoard' => $this->includeBoard,
             'includeCoverLuar' => $this->includeCoverLuar,
@@ -487,10 +487,6 @@ class ProductionCalculator extends Page implements HasForms
         return $calculations;
     }
 
-    /**
-     * Menghitung harga satuan untuk setiap komponen dan menyimpannya ke dalam array $allData.
-     * Array $allData dimodifikasi secara langsung (passed by reference).
-     */
     protected function calculateAndStoreUnitPrices(array &$allData, int $orderQuantity): void
     {
         $componentConfigs = [
@@ -535,15 +531,9 @@ class ProductionCalculator extends Page implements HasForms
         }
     }
     
-    /**
-     * Metode internal untuk logika inti perhitungan harga final.
-     * Menerima array data yang sudah lengkap (termasuk unit prices).
-     * Memodifikasi $allDataArray (by reference) untuk field summary.
-     * Mengupdate properti publik untuk tampilan.
-     */
     protected function _calculateFinalPriceInternal(array &$allDataArray, bool $showNotification = true): void
     {
-        $allData = $allDataArray; // Gunakan data yang dioper
+        $allData = $allDataArray;
         $quantity = (int)($allData['quantity'] ?? 1);
         $currentBoxType = $allData['box_type_selection'] ?? null;
 
@@ -581,7 +571,7 @@ class ProductionCalculator extends Page implements HasForms
         $masterCostData = null;
         $masterCostProductionRate = 0.0;
         $masterCostKnifeRate = 0.0;
-        $masterCostProfitPercentage = 0.0;
+        $masterCostProfitPercentage = 0.0; // Default profit from MasterCost
 
         if (!empty($allData['size'])) {
             $masterCostData = MasterCost::where('size', $allData['size'])->first();
@@ -610,7 +600,18 @@ class ProductionCalculator extends Page implements HasForms
         }
         
         $finalTotalCostBeforeProfit = $totalCostPerUnit * $quantity;
-        $totalProfitAmount = $finalTotalCostBeforeProfit * ($masterCostProfitPercentage / 100);
+
+        // --- Profit Calculation with Custom Override ---
+        $appliedProfitPercentage = $masterCostProfitPercentage; // Default to MasterCost profit
+        if (isset($allData['custom_profit_percentage']) && is_numeric($allData['custom_profit_percentage'])) {
+            $customProfitInput = $this->getFloatVal($allData['custom_profit_percentage']);
+            if ($customProfitInput >= 0) { // Allow 0% custom profit
+                $appliedProfitPercentage = $customProfitInput;
+            }
+        }
+        $totalProfitAmount = $finalTotalCostBeforeProfit * ($appliedProfitPercentage / 100);
+        // --- End of Profit Calculation ---
+        
         $finalTotalCost = $finalTotalCostBeforeProfit + $totalProfitAmount;
 
         // Mengisi properti publik untuk tampilan di Blade
@@ -631,7 +632,6 @@ class ProductionCalculator extends Page implements HasForms
         $this->unitPriceBusa = $this->getFloatVal($allData['unit_price_busa'] ?? null);
 
         // Simpan ringkasan biaya ke dalam $allDataArray (by reference) & properti publik
-        // Menggunakan nama key yang konsisten dengan apa yang diharapkan oleh saveFullCalculation
         $allDataArray['total_material_cost_summary'] = $totalMaterialCostPerUnit * $quantity;
         $this->summaryTotalMaterialCost = $allDataArray['total_material_cost_summary'];
 
@@ -643,6 +643,9 @@ class ProductionCalculator extends Page implements HasForms
 
         $allDataArray['knife_cost_summary'] = $actualKnifeCostPerUnit * $quantity;
         $this->summaryActualKnifeCost = $allDataArray['knife_cost_summary'];
+        
+        $allDataArray['applied_profit_percentage_summary'] = $appliedProfitPercentage; // Store the applied profit percentage
+        $this->displayAppliedProfitPercentage = $appliedProfitPercentage; // For Blade display
 
         $allDataArray['profit_amount_summary'] = $totalProfitAmount;
         $this->summaryProfitAmount = $allDataArray['profit_amount_summary'];
@@ -653,22 +656,18 @@ class ProductionCalculator extends Page implements HasForms
         $allDataArray['total_price_summary'] = $finalTotalCost;
         $this->summaryTotalPrice = $allDataArray['total_price_summary'];
         
-        // Format hasil total untuk tampilan
         $this->calculationResult = "Rp " . number_format($finalTotalCost, 0, ',', '.');
 
         if ($showNotification) {
             $boxTypeLabel = $allData['box_type_selection'] ? Str::title(str_replace('_', ' ', $allData['box_type_selection'])) : 'Tidak Diketahui';
             Notification::make()
                 ->title('Estimasi Harga Dihitung')
-                ->body('Total Estimasi: ' . $this->calculationResult . ' (Jenis Box: ' . $boxTypeLabel . ')')
+                ->body('Total Estimasi: ' . $this->calculationResult . ' (Jenis Box: ' . $boxTypeLabel . ', Profit: ' . $appliedProfitPercentage . '%)')
                 ->success()
                 ->send();
         }
     }
 
-    /**
-     * Orchestrator untuk menghitung harga final, dipanggil oleh tombol.
-     */
     public function calculateFinalPrice(bool $showNotification = true): void
     {
         $currentState = $this->form->getState(); 
@@ -678,14 +677,10 @@ class ProductionCalculator extends Page implements HasForms
         $quantity = (int)($dataForCalculations['quantity'] ?? 1);
         
         $this->calculateAndStoreUnitPrices($dataForCalculations, $quantity); 
-        $this->form->fill($dataForCalculations); // Update UI dengan semua nilai yang dihitung
+        $this->form->fill($dataForCalculations);
         $this->_calculateFinalPriceInternal($dataForCalculations, $showNotification);
     }
 
-    /**
-     * Mengupdate semua kalkulasi dan mengembalikan array data yang komprehensif.
-     * Dipanggil oleh livewire hooks atau saat penyimpanan.
-     */
     public function updateAllCalculations(bool $showNotification = false): array
     {
         $currentState = $this->form->getState();
@@ -694,7 +689,7 @@ class ProductionCalculator extends Page implements HasForms
         $quantity = (int)($dataForCalculations['quantity'] ?? 1);
         
         $this->calculateAndStoreUnitPrices($dataForCalculations, $quantity);
-        $this->form->fill($dataForCalculations); // Update UI
+        $this->form->fill($dataForCalculations);
         $this->_calculateFinalPriceInternal($dataForCalculations, $showNotification);
 
         return $dataForCalculations; 
@@ -710,6 +705,7 @@ class ProductionCalculator extends Page implements HasForms
         $this->summaryProfitAmount = null;
         $this->summarySellingPricePerItem = null;
         $this->summaryTotalPrice = null;
+        $this->displayAppliedProfitPercentage = null;
 
         $this->unitPriceBoardAtas = null;
         $this->unitPriceBoardBawah = null;
@@ -732,10 +728,7 @@ class ProductionCalculator extends Page implements HasForms
     {
         try {
             $this->form->validate(); 
-            
-            // Panggil updateAllCalculations SEKALI untuk mendapatkan data komprehensif
-            // $dataToSave akan berisi unit_price_* dan summary_* yang benar
-            $dataToSave = $this->updateAllCalculations(false); // false agar tidak ada notifikasi duplikat jika tombol Hitung ditekan sebelum Simpan
+            $dataToSave = $this->updateAllCalculations(false); 
 
             $priceNumeric = $this->calculationResult ? $this->getFloatVal(preg_replace('/[^0-9,.]/', '', $this->calculationResult)) : 0.0;
             
@@ -752,6 +745,7 @@ class ProductionCalculator extends Page implements HasForms
                 'product_name' => $dataToSave['product_name'] ?? '', 
                 'box_type_selection' => $dataToSave['box_type_selection'] ?? '',
                 'quantity' => $dataToSave['quantity'] ?? 0,
+                'custom_profit_input' => $this->getFloatVal($dataToSave['custom_profit_percentage'] ?? null), 
                 'include_knife_cost' => $dataToSave['include_knife_cost'] ?? 'tidak_ada',
 
                 'atas_panjang' => $this->getFloatVal($dataToSave['atas_panjang'] ?? null),
@@ -798,27 +792,49 @@ class ProductionCalculator extends Page implements HasForms
 
                 'final_qty_board_atas' => $dataToSave['final_qty_board_atas'] ?? null,
                 'final_qty_board_bawah' => $dataToSave['final_qty_board_bawah'] ?? null,
-                // ... (lanjutkan untuk semua final_qty_* dari $dataToSave) ...
+                'final_qty_board_kuping' => $dataToSave['final_qty_board_kuping'] ?? null,
+                'final_qty_board_lidah' => $dataToSave['final_qty_board_lidah'] ?? null,
+                'final_qty_board_selongsong' => $dataToSave['final_qty_board_selongsong'] ?? null,
+                'final_qty_cl_atas' => $dataToSave['final_qty_cl_atas'] ?? null,
+                'final_qty_cl_bawah' => $dataToSave['final_qty_cl_bawah'] ?? null,
+                'final_qty_cl_kuping' => $dataToSave['final_qty_cl_kuping'] ?? null,
+                'final_qty_cl_lidah' => $dataToSave['final_qty_cl_lidah'] ?? null,
+                'final_qty_cl_selongsong' => $dataToSave['final_qty_cl_selongsong'] ?? null,
+                'final_qty_cd_atas' => $dataToSave['final_qty_cd_atas'] ?? null,
+                'final_qty_cd_bawah' => $dataToSave['final_qty_cd_bawah'] ?? null,
+                'final_qty_cd_lidah' => $dataToSave['final_qty_cd_lidah'] ?? null,
+                'final_qty_cd_selongsong' => $dataToSave['final_qty_cd_selongsong'] ?? null,
                 'final_qty_busa' => $dataToSave['final_qty_busa'] ?? null,
-
+                
                 'unit_price_board_atas' => $this->getFloatVal($dataToSave['unit_price_board_atas'] ?? null),
                 'unit_price_board_bawah' => $this->getFloatVal($dataToSave['unit_price_board_bawah'] ?? null),
-                // ... (lanjutkan untuk semua unit_price_* dari $dataToSave) ...
+                'unit_price_board_kuping' => $this->getFloatVal($dataToSave['unit_price_board_kuping'] ?? null),
+                'unit_price_board_lidah' => $this->getFloatVal($dataToSave['unit_price_board_lidah'] ?? null),
+                'unit_price_board_selongsong' => $this->getFloatVal($dataToSave['unit_price_board_selongsong'] ?? null),
+                'unit_price_cl_atas' => $this->getFloatVal($dataToSave['unit_price_cover_luar_atas'] ?? null),
+                'unit_price_cl_bawah' => $this->getFloatVal($dataToSave['unit_price_cover_luar_bawah'] ?? null),
+                'unit_price_cl_kuping' => $this->getFloatVal($dataToSave['unit_price_cover_luar_kuping'] ?? null),
+                'unit_price_cl_lidah' => $this->getFloatVal($dataToSave['unit_price_cover_luar_lidah'] ?? null),
+                'unit_price_cl_selongsong' => $this->getFloatVal($dataToSave['unit_price_cover_luar_selongsong'] ?? null),
+                'unit_price_cd_atas' => $this->getFloatVal($dataToSave['unit_price_cover_dalam_atas'] ?? null),
+                'unit_price_cd_bawah' => $this->getFloatVal($dataToSave['unit_price_cover_dalam_bawah'] ?? null),
+                'unit_price_cd_lidah' => $this->getFloatVal($dataToSave['unit_price_cover_dalam_lidah'] ?? null),
+                'unit_price_cd_selongsong' => $this->getFloatVal($dataToSave['unit_price_cover_dalam_selongsong'] ?? null),
                 'unit_price_busa' => $this->getFloatVal($dataToSave['unit_price_busa'] ?? null),
 
                 'master_cost_size_selected' => $dataToSave['size'] ?? null,
                 'master_cost_production_rate' => $masterCostData ? $this->getFloatVal($masterCostData->production_cost ?? null) : null, 
                 'master_cost_knife_rate' => $masterCostData ? $this->getFloatVal($masterCostData->knife_cost ?? null) : null,
                 'master_cost_profit_percentage' => $masterCostData ? $this->getFloatVal($masterCostData->profit ?? null) : null, 
+                
                 'poly_dimension_selected' => $dataToSave['poly_dimension'] ?? null,
                 'poly_cost_rate' => $polyCostData ? $this->getFloatVal($polyCostData->cost ?? null) : null,
 
-                // Menggunakan nama key yang konsisten dari $dataToSave
                 'summary_total_material_cost' => $this->getFloatVal($dataToSave['total_material_cost_summary'] ?? null),
                 'summary_total_production_work_cost' => $this->getFloatVal($dataToSave['production_cost_summary'] ?? null),
                 'summary_total_poly_cost' => $this->getFloatVal($dataToSave['poly_cost_summary'] ?? null),
                 'summary_actual_knife_cost' => $this->getFloatVal($dataToSave['knife_cost_summary'] ?? null), 
-                'summary_profit_percentage_applied' => $masterCostData ? $this->getFloatVal($masterCostData->profit ?? null) : null, 
+                'summary_profit_percentage_applied' => $this->getFloatVal($dataToSave['applied_profit_percentage_summary'] ?? null),
                 'summary_total_profit_amount' => $this->getFloatVal($dataToSave['profit_amount_summary'] ?? null),
                 'summary_selling_price_per_item' => $this->getFloatVal($dataToSave['total_price_per_item_summary'] ?? null),
 
@@ -827,26 +843,6 @@ class ProductionCalculator extends Page implements HasForms
                 'notes' => $dataToSave['notes'] ?? null,
             ];
             
-            // Pastikan semua final_qty dan unit_price ada di recordData
-            $all_final_qty_keys = [
-                'final_qty_board_atas', 'final_qty_board_bawah', 'final_qty_board_kuping', 'final_qty_board_lidah', 'final_qty_board_selongsong',
-                'final_qty_cl_atas', 'final_qty_cl_bawah', 'final_qty_cl_kuping', 'final_qty_cl_lidah', 'final_qty_cl_selongsong',
-                'final_qty_cd_atas', 'final_qty_cd_bawah', 'final_qty_cd_lidah', 'final_qty_cd_selongsong', 'final_qty_busa',
-            ];
-            foreach($all_final_qty_keys as $key) {
-                $recordData[$key] = $dataToSave[$key] ?? null;
-            }
-
-            $all_unit_price_keys = [
-                'unit_price_board_atas', 'unit_price_board_bawah', 'unit_price_board_kuping', 'unit_price_board_lidah', 'unit_price_board_selongsong',
-                'unit_price_cl_atas', 'unit_price_cl_bawah', 'unit_price_cl_kuping', 'unit_price_cl_lidah', 'unit_price_cl_selongsong',
-                'unit_price_cd_atas', 'unit_price_cd_bawah', 'unit_price_cd_lidah', 'unit_price_cd_selongsong', 'unit_price_busa',
-            ];
-            foreach($all_unit_price_keys as $key) {
-                $recordData[$key] = $this->getFloatVal($dataToSave[$key] ?? null);
-            }
-
-
             DB::beginTransaction();
             PriceCalculation::create($recordData);
             DB::commit();
@@ -863,7 +859,7 @@ class ProductionCalculator extends Page implements HasForms
             DB::rollBack();
             Notification::make()
                 ->title('Gagal Menyimpan Kalkulasi (Validasi)')
-                ->body('Terjadi kesalahan validasi pada formulir. Mohon periksa kembali input Anda.') // Pesan error spesifik bisa terlalu teknis
+                ->body('Terjadi kesalahan validasi pada formulir. Mohon periksa kembali input Anda.')
                 ->danger()
                 ->send();
             Log::error('Filament Form Validation Failed: ' . $e->getMessage(), ['errors' => $e->errors(), 'data' => $this->form->getState()]);
@@ -908,6 +904,7 @@ class ProductionCalculator extends Page implements HasForms
         $this->resetErrorBag(); 
         $this->form->fill([
             'quantity' => 1,
+            'custom_profit_percentage' => null, 
             'include_knife_cost' => 'tidak_ada',
             'includeBoard' => false,
             'includeCoverLuar' => false,
@@ -923,13 +920,9 @@ class ProductionCalculator extends Page implements HasForms
             'selected_item_cover_luar' => null,
             'selected_item_cover_dalam' => null,
             'selected_item_busa' => null,
-            // Pastikan semua field yang mungkin perlu direset ada di sini
-            // atau panggil updateAllCalculations untuk mereset field kalkulasi
         ]);
         $this->clearCalculationResults(); 
-        // Panggil updateAllCalculations untuk memastikan field display kalkulasi juga direset ke 0
         $this->updateAllCalculations(false); 
-
 
         Notification::make()->title('Formulir direset!')->success()->send();
     }
@@ -950,7 +943,6 @@ class ProductionCalculator extends Page implements HasForms
         ];
     }
 
-    // Definisi Form Filament (tidak diubah dari kode Anda)
     public function form(Form $form): Form
     {
         $dimensionInputSchema = function (string $name, string|\Closure $label): TextInput {
@@ -1021,8 +1013,7 @@ class ProductionCalculator extends Page implements HasForms
                 return $defaultPrefix . " Atas";
             }
             if ($part === 'lidah' && in_array($boxType, ['BUKU PITA', 'BUKU MAGNET'])) return "Lidah";
-            if ($part === 'selongsong' && $boxType === 'SELONGSONG') return "Selongsong";
-
+            if ($part === 'selongsong' && $boxType === 'SELONGSONG') return "Selongsong"; 
             return $defaultPrefix . " " . Str::title($part);
         };
         
@@ -1032,7 +1023,7 @@ class ProductionCalculator extends Page implements HasForms
             if ($part === 'bawah') return in_array($boxType, ['TAB', 'BUSA', 'Double WallTreasury', 'JENDELA', 'BUKU PITA', 'BUKU MAGNET', 'SELONGSONG']);
             if ($part === 'lidah') return in_array($boxType, ['BUKU PITA', 'BUKU MAGNET']);
             if ($part === 'kuping_display') return $boxType === 'JENDELA';  
-            if ($part === 'selongsong_display') return $boxType === 'SELONGSONG';
+            if ($part === 'selongsong_display') return $boxType === 'SELONGSONG'; 
             return false;
         };
 
@@ -1043,70 +1034,91 @@ class ProductionCalculator extends Page implements HasForms
                         ->label('Jenis Box')
                         ->options($boxTypeOptions)
                         ->default('TAB')
-                        ->required()
+                        // ->required()
                         ->live()
                         ->afterStateUpdated(fn ($livewire) => $livewire->updateAllCalculations())
-                        ->columnSpan(2),
+                        ->columnSpan(['default' => 2, 'md' => 2]), 
                     TextInput::make('product_name')
                         ->label('Nama Produk')
-                        ->required()
+                        // ->required()
                         ->live(onBlur: true)
                         ->afterStateUpdated(fn ($livewire) => $livewire->updateAllCalculations())
-                        ->columnSpan(1),
+                        ->columnSpan(['default' => 2, 'md' => 1]), 
                     Select::make('size')
                         ->label('Ukuran Box (Master Cost)')
                         ->options(MasterCost::pluck('size', 'size')->toArray())
-                        ->required()
+                        // ->required()
                         ->live()
                         ->afterStateUpdated(fn ($livewire) => $livewire->updateAllCalculations())
-                        ->columnSpan(1),
+                        ->columnSpan(['default' => 2, 'sm' => 1]), 
                     Select::make('poly_dimension')
                         ->label('Dimensi Poly')
                         ->options(fn () => PolyCost::all()->pluck('dimension', 'dimension'))
                         ->nullable()
                         ->live()
                         ->afterStateUpdated(fn ($livewire) => $livewire->updateAllCalculations())
-                        ->columnSpan(1),
+                        ->columnSpan(['default' => 2, 'sm' => 1]), 
                     Select::make('include_knife_cost')
                         ->label('Termasuk Ongkos Pisau')
                         ->options(['ada' => 'Ada','tidak_ada' => 'Tidak Ada'])
-                        ->required()
+                        // ->required()
                         ->default('tidak_ada')
                         ->live()
                         ->afterStateUpdated(fn ($livewire) => $livewire->updateAllCalculations())
-                        ->columnSpan(1),
-                    TextInput::make('quantity')
+                        ->columnSpan(['default' => 2, 'sm' => 1]), 
+                    TextInput::make('quantity') 
                         ->label('Jumlah Pesan')
                         ->numeric()
                         ->default(1)
                         ->minValue(1)
-                        ->required()
+                        // ->required()
                         ->live(onBlur: true)
                         ->afterStateUpdated(fn ($livewire) => $livewire->updateAllCalculations())
-                        ->columnSpan(1),
-                ])->columns(3),
+                        ->columnSpan(['default' => 2, 'sm' => 1]), 
+                    TextInput::make('custom_profit_percentage') 
+                        ->label('Profit Kustom (%)')
+                        ->numeric()
+                        ->nullable()
+                        ->minValue(0)
+                        ->suffix('%')
+                        ->placeholder('Misal: 25')
+                        // ->helperText('Kosongkan untuk menggunakan profit dari Master Cost.')
+                        ->live(onBlur: true)
+                        ->afterStateUpdated(fn ($livewire) => $livewire->updateAllCalculations())
+                        ->columnSpan(['default' => 2, 'sm' => 1]), 
+                    
+                ])->columns(['default' => 1, 'md' => 2, 'lg' => 3]),
 
-            Section::make('Dimensi Box Input')
+            Section::make('Dimensi Box Input') // Section utama untuk input dimensi
                 ->description("Masukkan dimensi box dalam satuan centimeter.")
+                ->icon('heroicon-o-cube')
+                ->columns(1) // Section utama ini hanya 1 kolom
                 ->schema([
-                    Section::make()->label(fn(Get $get) => "Dimensi " . $getDynamicLabel($get, "atas"))->columns(3)->collapsible()
-                        ->hidden(fn(Get $get): bool => !$isPartVisible($get, 'atas') )
-                        ->schema([
-                            $dimensionInputSchema('atas_panjang', fn(Get $get) => "Panjang " . $getDynamicLabel($get, "atas")),
-                            $dimensionInputSchema('atas_lebar', fn(Get $get) => "Lebar " . $getDynamicLabel($get, "atas")),
-                            $dimensionInputSchema('atas_tinggi', fn(Get $get) => "Tinggi " . $getDynamicLabel($get, "atas")),
-                        ]),
-                    Section::make('Dimensi Box Bawah')->columns(3)->collapsible()
+                    Fieldset::make('fieldset_dimensi_bawah') // Menggunakan Fieldset untuk grup bawah
+                        ->label('Dimensi Box Bawah') // Label statis untuk Fieldset
+                        ->columns(['default' => 1, 'md' => 3]) // Kolom responsif untuk field di dalam Fieldset
+                        // ->collapsible() // Dihapus karena menyebabkan error
                         ->hidden(fn(Get $get): bool => !$isPartVisible($get, 'bawah') )
                         ->schema([
-                            $dimensionInputSchema('bawah_panjang', 'Panjang Box Bawah'),
-                            $dimensionInputSchema('bawah_lebar', 'Lebar Box Bawah'),
-                            $dimensionInputSchema('bawah_tinggi', 'Tinggi Box Bawah'),
+                            $dimensionInputSchema('bawah_panjang', 'Panjang Box Bawah')->columnSpan('full'),
+                            $dimensionInputSchema('bawah_lebar', 'Lebar Box Bawah')->columnSpan('full'),
+                            $dimensionInputSchema('bawah_tinggi', 'Tinggi Box Bawah')->columnSpan('full'),
                         ]),
-                ])->columns(1)->icon('heroicon-o-cube'),
+                    Fieldset::make('fieldset_dimensi_atas') // Menggunakan Fieldset untuk grup atas
+                        ->label(fn(Get $get) => "Dimensi " . $getDynamicLabel($get, "atas")) // Label dinamis untuk Fieldset
+                        ->columns(['default' => 1, 'md' => 3]) // Kolom responsif untuk field di dalam Fieldset
+                        // ->collapsible() // Dihapus karena menyebabkan error
+                        ->hidden(fn(Get $get): bool => !$isPartVisible($get, 'atas') )
+                        ->schema([
+                            $dimensionInputSchema('atas_panjang', fn(Get $get) => "Panjang " . $getDynamicLabel($get, "atas"))->columnSpan('full'),
+                            $dimensionInputSchema('atas_lebar', fn(Get $get) => "Lebar " . $getDynamicLabel($get, "atas"))->columnSpan('full'),
+                            $dimensionInputSchema('atas_tinggi', fn(Get $get) => "Tinggi " . $getDynamicLabel($get, "atas"))->columnSpan('full'),
+                        ]),
+                ]),
 
             Section::make('Pilihan Komponen Material')
-                ->columns(2)->collapsible()->icon('heroicon-o-adjustments-horizontal')
+                ->columns(['default' => 1, 'md' => 2]) 
+                ->collapsible()->icon('heroicon-o-adjustments-horizontal')
                 ->schema([
                     $componentToggleSchema('includeBoard', 'Sertakan Board'),
                     $componentItemSelectSchema('selected_item_board', 'Board', 'Board', 'includeBoard'),
@@ -1121,27 +1133,27 @@ class ProductionCalculator extends Page implements HasForms
             Section::make('Hasil Perhitungan Dimensi Komponen (Potongan Jadi)')
                 ->columns(1)->collapsible()->icon('heroicon-o-clipboard-document-list')
                 ->schema([
-                    Fieldset::make('Dimensi Board')->columns(2)->hidden(fn(Get $get) => !$get('includeBoard') || empty($get('selected_item_board')))->schema([
-                        Group::make([$dimensionDisplaySchema('panjang_board_atas', fn(Get $get) => "Pjg. ".$getDynamicLabel($get, 'atas', 'Box')), $dimensionDisplaySchema('lebar_board_atas', fn(Get $get) => "Lbr. ".$getDynamicLabel($get, 'atas', 'Box'))])->columns(2)->hidden(fn(Get $get) => !in_array($get('box_type_selection'), ['TAB', 'BUSA', 'Double WallTreasury'])),
-                        Group::make([$dimensionDisplaySchema('panjang_board_kuping', "Pjg. Kuping"), $dimensionDisplaySchema('lebar_board_kuping', "Lbr. Kuping")])->columns(2)->hidden(fn(Get $get) => $get('box_type_selection') !== 'JENDELA'),
-                        Group::make([$dimensionDisplaySchema('panjang_board_selongsong', "Pjg. Selongsong"), $dimensionDisplaySchema('lebar_board_selongsong', "Lbr. Selongsong")])->columns(2)->hidden(fn(Get $get) => $get('box_type_selection') !== 'SELONGSONG'),
-                        Group::make([$dimensionDisplaySchema('panjang_board_bawah', "Pjg. Box Bawah"), $dimensionDisplaySchema('lebar_board_bawah', "Lbr. Box Bawah")])->columns(2)->hidden(fn(Get $get) => !$isPartVisible($get, 'bawah')),
-                        Group::make([$dimensionDisplaySchema('panjang_board_lidah', "Pjg. Lidah"), $dimensionDisplaySchema('lebar_board_lidah', "Lbr. Lidah")])->columns(2)->hidden(fn(Get $get) => !in_array($get('box_type_selection'), ['BUKU PITA', 'BUKU MAGNET'])),
+                    Fieldset::make('Dimensi Board')->columns(['default' => 1, 'sm' => 2])->hidden(fn(Get $get) => !$get('includeBoard') || empty($get('selected_item_board')))->schema([
+                        Group::make([$dimensionDisplaySchema('panjang_board_atas', fn(Get $get) => "Pjg. ".$getDynamicLabel($get, 'atas', 'Box')), $dimensionDisplaySchema('lebar_board_atas', fn(Get $get) => "Lbr. ".$getDynamicLabel($get, 'atas', 'Box'))])->columns(['default' => 1, 'sm' => 2])->hidden(fn(Get $get) => !in_array($get('box_type_selection'), ['TAB', 'BUSA', 'Double WallTreasury'])),
+                        Group::make([$dimensionDisplaySchema('panjang_board_kuping', "Pjg. Kuping"), $dimensionDisplaySchema('lebar_board_kuping', "Lbr. Kuping")])->columns(['default' => 1, 'sm' => 2])->hidden(fn(Get $get) => $get('box_type_selection') !== 'JENDELA'),
+                        Group::make([$dimensionDisplaySchema('panjang_board_selongsong', "Pjg. Selongsong"), $dimensionDisplaySchema('lebar_board_selongsong', "Lbr. Selongsong")])->columns(['default' => 1, 'sm' => 2])->hidden(fn(Get $get) => $get('box_type_selection') !== 'SELONGSONG'),
+                        Group::make([$dimensionDisplaySchema('panjang_board_bawah', "Pjg. Box Bawah"), $dimensionDisplaySchema('lebar_board_bawah', "Lbr. Box Bawah")])->columns(['default' => 1, 'sm' => 2])->hidden(fn(Get $get) => !$isPartVisible($get, 'bawah')),
+                        Group::make([$dimensionDisplaySchema('panjang_board_lidah', "Pjg. Lidah"), $dimensionDisplaySchema('lebar_board_lidah', "Lbr. Lidah")])->columns(['default' => 1, 'sm' => 2])->hidden(fn(Get $get) => !in_array($get('box_type_selection'), ['BUKU PITA', 'BUKU MAGNET'])),
                     ]),
-                    Fieldset::make('Dimensi Cover Luar')->columns(2)->hidden(fn(Get $get) => !$get('includeCoverLuar') || empty($get('selected_item_cover_luar')))->schema([
-                        Group::make([$dimensionDisplaySchema('panjang_cover_luar_atas', fn(Get $get) => "Pjg. ".$getDynamicLabel($get, 'atas', 'Box')), $dimensionDisplaySchema('lebar_cover_luar_atas', fn(Get $get) => "Lbr. ".$getDynamicLabel($get, 'atas', 'Box'))])->columns(2)->hidden(fn(Get $get) => !in_array($get('box_type_selection'), ['TAB', 'BUSA', 'Double WallTreasury'])),
-                        Group::make([$dimensionDisplaySchema('panjang_cover_luar_kuping', "Pjg. Kuping"), $dimensionDisplaySchema('lebar_cover_luar_kuping', "Lbr. Kuping")])->columns(2)->hidden(fn(Get $get) => $get('box_type_selection') !== 'JENDELA'),
-                        Group::make([$dimensionDisplaySchema('panjang_cover_luar_selongsong', "Pjg. Selongsong"), $dimensionDisplaySchema('lebar_cover_luar_selongsong', "Lbr. Selongsong")])->columns(2)->hidden(fn(Get $get) => $get('box_type_selection') !== 'SELONGSONG'),
-                        Group::make([$dimensionDisplaySchema('panjang_cover_luar_bawah', "Pjg. Box Bawah"), $dimensionDisplaySchema('lebar_cover_luar_bawah', "Lbr. Box Bawah")])->columns(2)->hidden(fn(Get $get) => !$isPartVisible($get, 'bawah')),
-                        Group::make([$dimensionDisplaySchema('panjang_cover_luar_lidah', "Pjg. Lidah"), $dimensionDisplaySchema('lebar_cover_luar_lidah', "Lbr. Lidah")])->columns(2)->hidden(fn(Get $get) => !in_array($get('box_type_selection'), ['BUKU PITA', 'BUKU MAGNET'])),
+                    Fieldset::make('Dimensi Cover Luar')->columns(['default' => 1, 'sm' => 2])->hidden(fn(Get $get) => !$get('includeCoverLuar') || empty($get('selected_item_cover_luar')))->schema([
+                        Group::make([$dimensionDisplaySchema('panjang_cover_luar_atas', fn(Get $get) => "Pjg. ".$getDynamicLabel($get, 'atas', 'Box')), $dimensionDisplaySchema('lebar_cover_luar_atas', fn(Get $get) => "Lbr. ".$getDynamicLabel($get, 'atas', 'Box'))])->columns(['default' => 1, 'sm' => 2])->hidden(fn(Get $get) => !in_array($get('box_type_selection'), ['TAB', 'BUSA', 'Double WallTreasury'])),
+                        Group::make([$dimensionDisplaySchema('panjang_cover_luar_kuping', "Pjg. Kuping"), $dimensionDisplaySchema('lebar_cover_luar_kuping', "Lbr. Kuping")])->columns(['default' => 1, 'sm' => 2])->hidden(fn(Get $get) => $get('box_type_selection') !== 'JENDELA'),
+                        Group::make([$dimensionDisplaySchema('panjang_cover_luar_selongsong', "Pjg. Selongsong"), $dimensionDisplaySchema('lebar_cover_luar_selongsong', "Lbr. Selongsong")])->columns(['default' => 1, 'sm' => 2])->hidden(fn(Get $get) => $get('box_type_selection') !== 'SELONGSONG'),
+                        Group::make([$dimensionDisplaySchema('panjang_cover_luar_bawah', "Pjg. Box Bawah"), $dimensionDisplaySchema('lebar_cover_luar_bawah', "Lbr. Box Bawah")])->columns(['default' => 1, 'sm' => 2])->hidden(fn(Get $get) => !$isPartVisible($get, 'bawah')),
+                        Group::make([$dimensionDisplaySchema('panjang_cover_luar_lidah', "Pjg. Lidah"), $dimensionDisplaySchema('lebar_cover_luar_lidah', "Lbr. Lidah")])->columns(['default' => 1, 'sm' => 2])->hidden(fn(Get $get) => !in_array($get('box_type_selection'), ['BUKU PITA', 'BUKU MAGNET'])),
                     ]),
-                    Fieldset::make('Dimensi Cover Dalam')->columns(2)->hidden(fn(Get $get) => !$get('includeCoverDalam') || empty($get('selected_item_cover_dalam')))->schema([
-                        Group::make([$dimensionDisplaySchema('panjang_cover_dalam_atas', fn(Get $get) => "Pjg. ".$getDynamicLabel($get, 'atas', 'Box')), $dimensionDisplaySchema('lebar_cover_dalam_atas', fn(Get $get) => "Lbr. ".$getDynamicLabel($get, 'atas', 'Box'))])->columns(2)->hidden(fn(Get $get) => !in_array($get('box_type_selection'), ['TAB', 'BUSA', 'Double WallTreasury', 'JENDELA'])),  
-                        Group::make([$dimensionDisplaySchema('panjang_cover_dalam_selongsong', "Pjg. Selongsong"), $dimensionDisplaySchema('lebar_cover_dalam_selongsong', "Lbr. Selongsong")])->columns(2)->hidden(fn(Get $get) => $get('box_type_selection') !== 'SELONGSONG'),
-                        Group::make([$dimensionDisplaySchema('panjang_cover_dalam_bawah', "Pjg. Box Bawah"), $dimensionDisplaySchema('lebar_cover_dalam_bawah', "Lbr. Box Bawah")])->columns(2)->hidden(fn(Get $get) => !$isPartVisible($get, 'bawah')),
-                        Group::make([$dimensionDisplaySchema('panjang_cover_dalam_lidah', "Pjg. Lidah"), $dimensionDisplaySchema('lebar_cover_dalam_lidah', "Lbr. Lidah")])->columns(2)->hidden(fn(Get $get) => !in_array($get('box_type_selection'), ['BUKU PITA', 'BUKU MAGNET'])),
+                    Fieldset::make('Dimensi Cover Dalam')->columns(['default' => 1, 'sm' => 2])->hidden(fn(Get $get) => !$get('includeCoverDalam') || empty($get('selected_item_cover_dalam')))->schema([
+                        Group::make([$dimensionDisplaySchema('panjang_cover_dalam_atas', fn(Get $get) => "Pjg. ".$getDynamicLabel($get, 'atas', 'Box')), $dimensionDisplaySchema('lebar_cover_dalam_atas', fn(Get $get) => "Lbr. ".$getDynamicLabel($get, 'atas', 'Box'))])->columns(['default' => 1, 'sm' => 2])->hidden(fn(Get $get) => !in_array($get('box_type_selection'), ['TAB', 'BUSA', 'Double WallTreasury', 'JENDELA'])),  
+                        Group::make([$dimensionDisplaySchema('panjang_cover_dalam_selongsong', "Pjg. Selongsong"), $dimensionDisplaySchema('lebar_cover_dalam_selongsong', "Lbr. Selongsong")])->columns(['default' => 1, 'sm' => 2])->hidden(fn(Get $get) => $get('box_type_selection') !== 'SELONGSONG'),
+                        Group::make([$dimensionDisplaySchema('panjang_cover_dalam_bawah', "Pjg. Box Bawah"), $dimensionDisplaySchema('lebar_cover_dalam_bawah', "Lbr. Box Bawah")])->columns(['default' => 1, 'sm' => 2])->hidden(fn(Get $get) => !$isPartVisible($get, 'bawah')),
+                        Group::make([$dimensionDisplaySchema('panjang_cover_dalam_lidah', "Pjg. Lidah"), $dimensionDisplaySchema('lebar_cover_dalam_lidah', "Lbr. Lidah")])->columns(['default' => 1, 'sm' => 2])->hidden(fn(Get $get) => !in_array($get('box_type_selection'), ['BUKU PITA', 'BUKU MAGNET'])),
                     ]),
-                    Fieldset::make('Dimensi Busa')->columns(2)->hidden(fn(Get $get) => !$get('includeBusa') || empty($get('selected_item_busa')) || !$isPartVisible($get, 'bawah') )->schema([
+                    Fieldset::make('Dimensi Busa')->columns(['default' => 1, 'sm' => 2])->hidden(fn(Get $get) => !$get('includeBusa') || empty($get('selected_item_busa')) || !$isPartVisible($get, 'bawah') )->schema([
                         $dimensionDisplaySchema('panjang_busa', 'Panjang Busa'), $dimensionDisplaySchema('lebar_busa', 'Lebar Busa')
                     ]),
                 ]),
@@ -1149,45 +1161,45 @@ class ProductionCalculator extends Page implements HasForms
                 ->columns(1)->collapsible()->icon('heroicon-o-view-columns')
                 ->schema([
                     Fieldset::make('Kuantitas Board')->columns(1)->hidden(fn(Get $get) => !$get('includeBoard') || empty($get('selected_item_board')))->schema([
-                        Group::make([$dimensionDisplaySchema('board_panjang_kertas', 'Pjg. Kertas'), $dimensionDisplaySchema('board_lebar_kertas', 'Lbr. Kertas')])->columns(2),
+                        Group::make([$dimensionDisplaySchema('board_panjang_kertas', 'Pjg. Kertas'), $dimensionDisplaySchema('board_lebar_kertas', 'Lbr. Kertas')])->columns(['default' => 1, 'sm' => 2]),
                         Placeholder::make('qty_board_atas_label')->label(fn(Get $get) => "Kuantitas ".$getDynamicLabel($get, 'atas', 'Box')." (Board)")->hidden(fn(Get $get) => !in_array($get('box_type_selection'), ['TAB', 'BUSA', 'Double WallTreasury'])),
-                        Group::make([$dimensionDisplaySchema('qty1_board_atas', 'Q1', 'pcs'), $dimensionDisplaySchema('qty2_board_atas', 'Q2', 'pcs'), $dimensionDisplaySchema('final_qty_board_atas', 'Final', 'pcs')])->columns(3)->hidden(fn(Get $get) => !in_array($get('box_type_selection'), ['TAB', 'BUSA', 'Double WallTreasury'])),
+                        Group::make([$dimensionDisplaySchema('qty1_board_atas', 'Q1', 'pcs'), $dimensionDisplaySchema('qty2_board_atas', 'Q2', 'pcs'), $dimensionDisplaySchema('final_qty_board_atas', 'Final', 'pcs')])->columns(['default' => 1, 'sm' => 3])->hidden(fn(Get $get) => !in_array($get('box_type_selection'), ['TAB', 'BUSA', 'Double WallTreasury'])),
                         Placeholder::make('qty_board_kuping_label')->label("Kuantitas Kuping (Board)")->hidden(fn(Get $get) => $get('box_type_selection') !== 'JENDELA'),
-                        Group::make([$dimensionDisplaySchema('qty1_board_kuping', 'Q1', 'pcs'), $dimensionDisplaySchema('qty2_board_kuping', 'Q2', 'pcs'), $dimensionDisplaySchema('final_qty_board_kuping', 'Final', 'pcs')])->columns(3)->hidden(fn(Get $get) => $get('box_type_selection') !== 'JENDELA'),
+                        Group::make([$dimensionDisplaySchema('qty1_board_kuping', 'Q1', 'pcs'), $dimensionDisplaySchema('qty2_board_kuping', 'Q2', 'pcs'), $dimensionDisplaySchema('final_qty_board_kuping', 'Final', 'pcs')])->columns(['default' => 1, 'sm' => 3])->hidden(fn(Get $get) => $get('box_type_selection') !== 'JENDELA'),
                         Placeholder::make('qty_board_selongsong_label')->label("Kuantitas Selongsong (Board)")->hidden(fn(Get $get) => $get('box_type_selection') !== 'SELONGSONG'),
-                        Group::make([$dimensionDisplaySchema('qty1_board_selongsong', 'Q1', 'pcs'), $dimensionDisplaySchema('qty2_board_selongsong', 'Q2', 'pcs'), $dimensionDisplaySchema('final_qty_board_selongsong', 'Final', 'pcs')])->columns(3)->hidden(fn(Get $get) => $get('box_type_selection') !== 'SELONGSONG'),
+                        Group::make([$dimensionDisplaySchema('qty1_board_selongsong', 'Q1', 'pcs'), $dimensionDisplaySchema('qty2_board_selongsong', 'Q2', 'pcs'), $dimensionDisplaySchema('final_qty_board_selongsong', 'Final', 'pcs')])->columns(['default' => 1, 'sm' => 3])->hidden(fn(Get $get) => $get('box_type_selection') !== 'SELONGSONG'),
                         Placeholder::make('qty_board_bawah_label')->label("Kuantitas Box Bawah (Board)")->hidden(fn(Get $get) => !$isPartVisible($get, 'bawah')),
-                        Group::make([$dimensionDisplaySchema('qty1_board_bawah', 'Q1', 'pcs'), $dimensionDisplaySchema('qty2_board_bawah', 'Q2', 'pcs'), $dimensionDisplaySchema('final_qty_board_bawah', 'Final', 'pcs')])->columns(3)->hidden(fn(Get $get) => !$isPartVisible($get, 'bawah')),
+                        Group::make([$dimensionDisplaySchema('qty1_board_bawah', 'Q1', 'pcs'), $dimensionDisplaySchema('qty2_board_bawah', 'Q2', 'pcs'), $dimensionDisplaySchema('final_qty_board_bawah', 'Final', 'pcs')])->columns(['default' => 1, 'sm' => 3])->hidden(fn(Get $get) => !$isPartVisible($get, 'bawah')),
                         Placeholder::make('qty_board_lidah_label')->label("Kuantitas Lidah (Board)")->hidden(fn(Get $get) => !in_array($get('box_type_selection'), ['BUKU PITA', 'BUKU MAGNET'])),
-                        Group::make([$dimensionDisplaySchema('qty1_board_lidah', 'Q1', 'pcs'), $dimensionDisplaySchema('qty2_board_lidah', 'Q2', 'pcs'), $dimensionDisplaySchema('final_qty_board_lidah', 'Final', 'pcs')])->columns(3)->hidden(fn(Get $get) => !in_array($get('box_type_selection'), ['BUKU PITA', 'BUKU MAGNET'])),
+                        Group::make([$dimensionDisplaySchema('qty1_board_lidah', 'Q1', 'pcs'), $dimensionDisplaySchema('qty2_board_lidah', 'Q2', 'pcs'), $dimensionDisplaySchema('final_qty_board_lidah', 'Final', 'pcs')])->columns(['default' => 1, 'sm' => 3])->hidden(fn(Get $get) => !in_array($get('box_type_selection'), ['BUKU PITA', 'BUKU MAGNET'])),
                     ]),
                     Fieldset::make('Kuantitas Cover Luar')->columns(1)->hidden(fn(Get $get) => !$get('includeCoverLuar') || empty($get('selected_item_cover_luar')))->schema([
-                        Group::make([$dimensionDisplaySchema('cover_luar_panjang_kertas', 'Pjg. Kertas'), $dimensionDisplaySchema('cover_luar_lebar_kertas', 'Lbr. Kertas')])->columns(2),
+                        Group::make([$dimensionDisplaySchema('cover_luar_panjang_kertas', 'Pjg. Kertas'), $dimensionDisplaySchema('cover_luar_lebar_kertas', 'Lbr. Kertas')])->columns(['default' => 1, 'sm' => 2]),
                         Placeholder::make('qty_cl_atas_label')->label(fn(Get $get) => "Kuantitas ".$getDynamicLabel($get, 'atas', 'Box')." (CL)")->hidden(fn(Get $get) => !in_array($get('box_type_selection'), ['TAB', 'BUSA', 'Double WallTreasury'])),
-                        Group::make([$dimensionDisplaySchema('qty1_cover_luar_atas', 'Q1', 'pcs'), $dimensionDisplaySchema('qty2_cover_luar_atas', 'Q2', 'pcs'), $dimensionDisplaySchema('final_qty_cover_luar_atas', 'Final', 'pcs')])->columns(3)->hidden(fn(Get $get) => !in_array($get('box_type_selection'), ['TAB', 'BUSA', 'Double WallTreasury'])),
+                        Group::make([$dimensionDisplaySchema('qty1_cover_luar_atas', 'Q1', 'pcs'), $dimensionDisplaySchema('qty2_cover_luar_atas', 'Q2', 'pcs'), $dimensionDisplaySchema('final_qty_cover_luar_atas', 'Final', 'pcs')])->columns(['default' => 1, 'sm' => 3])->hidden(fn(Get $get) => !in_array($get('box_type_selection'), ['TAB', 'BUSA', 'Double WallTreasury'])),
                         Placeholder::make('qty_cl_kuping_label')->label("Kuantitas Kuping (CL)")->hidden(fn(Get $get) => $get('box_type_selection') !== 'JENDELA'),
-                        Group::make([$dimensionDisplaySchema('qty1_cover_luar_kuping', 'Q1', 'pcs'), $dimensionDisplaySchema('qty2_cover_luar_kuping', 'Q2', 'pcs'), $dimensionDisplaySchema('final_qty_cover_luar_kuping', 'Final', 'pcs')])->columns(3)->hidden(fn(Get $get) => $get('box_type_selection') !== 'JENDELA'),
+                        Group::make([$dimensionDisplaySchema('qty1_cover_luar_kuping', 'Q1', 'pcs'), $dimensionDisplaySchema('qty2_cover_luar_kuping', 'Q2', 'pcs'), $dimensionDisplaySchema('final_qty_cover_luar_kuping', 'Final', 'pcs')])->columns(['default' => 1, 'sm' => 3])->hidden(fn(Get $get) => $get('box_type_selection') !== 'JENDELA'),
                         Placeholder::make('qty_cl_selongsong_label')->label("Kuantitas Selongsong (CL)")->hidden(fn(Get $get) => $get('box_type_selection') !== 'SELONGSONG'),
-                        Group::make([$dimensionDisplaySchema('qty1_cover_luar_selongsong', 'Q1', 'pcs'), $dimensionDisplaySchema('qty2_cover_luar_selongsong', 'Q2', 'pcs'), $dimensionDisplaySchema('final_qty_cover_luar_selongsong', 'Final', 'pcs')])->columns(3)->hidden(fn(Get $get) => $get('box_type_selection') !== 'SELONGSONG'),
+                        Group::make([$dimensionDisplaySchema('qty1_cover_luar_selongsong', 'Q1', 'pcs'), $dimensionDisplaySchema('qty2_cover_luar_selongsong', 'Q2', 'pcs'), $dimensionDisplaySchema('final_qty_cover_luar_selongsong', 'Final', 'pcs')])->columns(['default' => 1, 'sm' => 3])->hidden(fn(Get $get) => $get('box_type_selection') !== 'SELONGSONG'),
                         Placeholder::make('qty_cl_bawah_label')->label("Kuantitas Box Bawah (CL)")->hidden(fn(Get $get) => !$isPartVisible($get, 'bawah')),
-                        Group::make([$dimensionDisplaySchema('qty1_cover_luar_bawah', 'Q1', 'pcs'), $dimensionDisplaySchema('qty2_cover_luar_bawah', 'Q2', 'pcs'), $dimensionDisplaySchema('final_qty_cover_luar_bawah', 'Final', 'pcs')])->columns(3)->hidden(fn(Get $get) => !$isPartVisible($get, 'bawah')),
+                        Group::make([$dimensionDisplaySchema('qty1_cover_luar_bawah', 'Q1', 'pcs'), $dimensionDisplaySchema('qty2_cover_luar_bawah', 'Q2', 'pcs'), $dimensionDisplaySchema('final_qty_cover_luar_bawah', 'Final', 'pcs')])->columns(['default' => 1, 'sm' => 3])->hidden(fn(Get $get) => !$isPartVisible($get, 'bawah')),
                         Placeholder::make('qty_cl_lidah_label')->label("Kuantitas Lidah (CL)")->hidden(fn(Get $get) => !in_array($get('box_type_selection'), ['BUKU PITA', 'BUKU MAGNET'])),
-                        Group::make([$dimensionDisplaySchema('qty1_cover_luar_lidah', 'Q1', 'pcs'), $dimensionDisplaySchema('qty2_cover_luar_lidah', 'Q2', 'pcs'), $dimensionDisplaySchema('final_qty_cover_luar_lidah', 'Final', 'pcs')])->columns(3)->hidden(fn(Get $get) => !in_array($get('box_type_selection'), ['BUKU PITA', 'BUKU MAGNET'])),
+                        Group::make([$dimensionDisplaySchema('qty1_cover_luar_lidah', 'Q1', 'pcs'), $dimensionDisplaySchema('qty2_cover_luar_lidah', 'Q2', 'pcs'), $dimensionDisplaySchema('final_qty_cover_luar_lidah', 'Final', 'pcs')])->columns(['default' => 1, 'sm' => 3])->hidden(fn(Get $get) => !in_array($get('box_type_selection'), ['BUKU PITA', 'BUKU MAGNET'])),
                     ]),
                     Fieldset::make('Kuantitas Cover Dalam')->columns(1)->hidden(fn(Get $get) => !$get('includeCoverDalam') || empty($get('selected_item_cover_dalam')))->schema([
-                        Group::make([$dimensionDisplaySchema('cover_dalam_panjang_kertas', 'Pjg. Kertas'), $dimensionDisplaySchema('cover_dalam_lebar_kertas', 'Lbr. Kertas')])->columns(2),
+                        Group::make([$dimensionDisplaySchema('cover_dalam_panjang_kertas', 'Pjg. Kertas'), $dimensionDisplaySchema('cover_dalam_lebar_kertas', 'Lbr. Kertas')])->columns(['default' => 1, 'sm' => 2]),
                         Placeholder::make('qty_cd_atas_label')->label(fn(Get $get) => "Kuantitas ".$getDynamicLabel($get, 'atas', 'Box')." (CD)")->hidden(fn(Get $get) => !in_array($get('box_type_selection'), ['TAB', 'BUSA', 'Double WallTreasury', 'JENDELA'])),  
-                        Group::make([$dimensionDisplaySchema('qty1_cover_dalam_atas', 'Q1', 'pcs'), $dimensionDisplaySchema('qty2_cover_dalam_atas', 'Q2', 'pcs'), $dimensionDisplaySchema('final_qty_cover_dalam_atas', 'Final', 'pcs')])->columns(3)->hidden(fn(Get $get) => !in_array($get('box_type_selection'), ['TAB', 'BUSA', 'Double WallTreasury', 'JENDELA'])),
+                        Group::make([$dimensionDisplaySchema('qty1_cover_dalam_atas', 'Q1', 'pcs'), $dimensionDisplaySchema('qty2_cover_dalam_atas', 'Q2', 'pcs'), $dimensionDisplaySchema('final_qty_cover_dalam_atas', 'Final', 'pcs')])->columns(['default' => 1, 'sm' => 3])->hidden(fn(Get $get) => !in_array($get('box_type_selection'), ['TAB', 'BUSA', 'Double WallTreasury', 'JENDELA'])),
                         Placeholder::make('qty_cd_selongsong_label')->label("Kuantitas Selongsong (CD)")->hidden(fn(Get $get) => $get('box_type_selection') !== 'SELONGSONG'),
-                        Group::make([$dimensionDisplaySchema('qty1_cover_dalam_selongsong', 'Q1', 'pcs'), $dimensionDisplaySchema('qty2_cover_dalam_selongsong', 'Q2', 'pcs'), $dimensionDisplaySchema('final_qty_cover_dalam_selongsong', 'Final', 'pcs')])->columns(3)->hidden(fn(Get $get) => $get('box_type_selection') !== 'SELONGSONG'),
+                        Group::make([$dimensionDisplaySchema('qty1_cover_dalam_selongsong', 'Q1', 'pcs'), $dimensionDisplaySchema('qty2_cover_dalam_selongsong', 'Q2', 'pcs'), $dimensionDisplaySchema('final_qty_cover_dalam_selongsong', 'Final', 'pcs')])->columns(['default' => 1, 'sm' => 3])->hidden(fn(Get $get) => $get('box_type_selection') !== 'SELONGSONG'),
                         Placeholder::make('qty_cd_bawah_label')->label("Kuantitas Box Bawah (CD)")->hidden(fn(Get $get) => !$isPartVisible($get, 'bawah')),
-                        Group::make([$dimensionDisplaySchema('qty1_cover_dalam_bawah', 'Q1', 'pcs'), $dimensionDisplaySchema('qty2_cover_dalam_bawah', 'Q2', 'pcs'), $dimensionDisplaySchema('final_qty_cover_dalam_bawah', 'Final', 'pcs')])->columns(3)->hidden(fn(Get $get) => !$isPartVisible($get, 'bawah')),
+                        Group::make([$dimensionDisplaySchema('qty1_cover_dalam_bawah', 'Q1', 'pcs'), $dimensionDisplaySchema('qty2_cover_dalam_bawah', 'Q2', 'pcs'), $dimensionDisplaySchema('final_qty_cover_dalam_bawah', 'Final', 'pcs')])->columns(['default' => 1, 'sm' => 3])->hidden(fn(Get $get) => !$isPartVisible($get, 'bawah')),
                         Placeholder::make('qty_cd_lidah_label')->label("Kuantitas Lidah (CD)")->hidden(fn(Get $get) => !in_array($get('box_type_selection'), ['BUKU PITA', 'BUKU MAGNET'])),
-                        Group::make([$dimensionDisplaySchema('qty1_cover_dalam_lidah', 'Q1', 'pcs'), $dimensionDisplaySchema('qty2_cover_dalam_lidah', 'Q2', 'pcs'), $dimensionDisplaySchema('final_qty_cover_dalam_lidah', 'Final', 'pcs')])->columns(3)->hidden(fn(Get $get) => !in_array($get('box_type_selection'), ['BUKU PITA', 'BUKU MAGNET'])),
+                        Group::make([$dimensionDisplaySchema('qty1_cover_dalam_lidah', 'Q1', 'pcs'), $dimensionDisplaySchema('qty2_cover_dalam_lidah', 'Q2', 'pcs'), $dimensionDisplaySchema('final_qty_cover_dalam_lidah', 'Final', 'pcs')])->columns(['default' => 1, 'sm' => 3])->hidden(fn(Get $get) => !in_array($get('box_type_selection'), ['BUKU PITA', 'BUKU MAGNET'])),
                     ]),
                     Fieldset::make('Kuantitas Busa')->columns(1)->hidden(fn(Get $get) => !$get('includeBusa') || empty($get('selected_item_busa')) || !$isPartVisible($get, 'bawah'))->schema([
-                        Group::make([$dimensionDisplaySchema('busa_panjang_kertas', 'Pjg. Material'), $dimensionDisplaySchema('busa_lebar_kertas', 'Lbr. Material')])->columns(2),
-                        Group::make([$dimensionDisplaySchema('qty1_busa', 'Q1', 'pcs'), $dimensionDisplaySchema('qty2_busa', 'Q2', 'pcs'), $dimensionDisplaySchema('final_qty_busa', 'Final', 'pcs')])->columns(3),
+                        Group::make([$dimensionDisplaySchema('busa_panjang_kertas', 'Pjg. Material'), $dimensionDisplaySchema('busa_lebar_kertas', 'Lbr. Material')])->columns(['default' => 1, 'sm' => 2]),
+                        Group::make([$dimensionDisplaySchema('qty1_busa', 'Q1', 'pcs'), $dimensionDisplaySchema('qty2_busa', 'Q2', 'pcs'), $dimensionDisplaySchema('final_qty_busa', 'Final', 'pcs')])->columns(['default' => 1, 'sm' => 3]),
                     ]),
                 ]),
             Section::make('Hasil Perhitungan Harga Satuan Komponen')

@@ -40,6 +40,7 @@ return new class extends Migration
             $table->string('product_name'); // Required by default for string
             $table->string('box_type_selection'); // Required by default for string
             $table->integer('quantity')->default(1);
+            $table->decimal('custom_profit_input', 5, 2)->nullable()->comment('Input persentase profit kustom oleh user');
             $table->string('include_knife_cost')->default('tidak_ada'); // 'ada' atau 'tidak_ada'
 
             // Input Dimensi Box (all nullable)

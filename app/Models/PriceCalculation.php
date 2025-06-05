@@ -13,6 +13,7 @@ class PriceCalculation extends Model
         'product_name',
         'box_type_selection',
         'quantity',
+        'custom_profit_input',
         'include_knife_cost',
         'atas_panjang',
         'atas_lebar',

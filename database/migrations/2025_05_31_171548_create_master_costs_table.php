@@ -16,7 +16,6 @@ return new class extends Migration
             $table->string('size'); // XS, Kecil, Sedang, Besar, XXL
             $table->decimal('production_cost', 12, 2);
             $table->decimal('knife_cost', 12, 2);
-            $table->decimal('profit', 12, 2);
             $table->timestamps();
         });
     }
