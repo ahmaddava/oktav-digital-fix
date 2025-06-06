@@ -85,19 +85,15 @@ class UserRolePermissionSeeder extends Seeder
             'view_invoice', 'view_any_invoice', 'create_invoice', 'update_invoice', 'delete_invoice', 'delete_any_invoice',
             // Payment: CRUD
             'view_payment', 'view_any_payment', 'create_payment', 'update_payment', 'delete_payment', 'delete_any_payment', 'export_payment',
-            // MasterCost (Biaya Produksi): CRUD
-            'view_master::cost', 'view_any_master::cost', 'create_master::cost', 'update_master::cost', 'restore_master::cost', 'restore_any_master::cost', 'replicate_master::cost', 'reorder_master::cost', 'delete_master::cost', 'delete_any_master::cost', 'force_delete_master::cost', 'force_delete_any_master::cost', 'export_master::cost', 'send_master::cost',
-            // PolyCost (Biaya Poly): CRUD
-            'view_poly::cost', 'view_any_poly::cost', 'create_poly::cost', 'update_poly::cost', 'restore_poly::cost', 'restore_any_poly::cost', 'replicate_poly::cost', 'reorder_poly::cost', 'delete_poly::cost', 'delete_any_poly::cost', 'force_delete_poly::cost', 'force_delete_any_poly::cost', 'export_poly::cost', 'send_poly::cost',
-            // PriceCalculation (Riwayat Kalkulasi): CRUD
-            'view_price::calculation', 'view_any_price::calculation', 'create_price::calculation', 'update_price::calculation', 'restore_price::calculation', 'restore_any_price::calculation', 'replicate_price::calculation', 'reorder_price::calculation', 'delete_price::calculation', 'delete_any_price::calculation', 'force_delete_price::calculation', 'force_delete_any_price::calculation', 'export_price::calculation', 'send_price::calculation',
-            // ProductionCategory (Kategori Produksi): CRUD
-            'view_production::category', 'view_any_production::category', 'create_production::category', 'update_production::category', 'restore_production::category', 'restore_any_production::category', 'replicate_production::category', 'reorder_production::category', 'delete_production::category', 'delete_any_production::category', 'force_delete_production::category', 'force_delete_any_production::category', 'export_production::category', 'send_production::category',
-            // ProductionItem (Item Produksi): CRUD
-            'view_production::item', 'view_any_production::item', 'create_production::item', 'update_production::item', 'restore_production::item', 'restore_any_production::item', 'replicate_production::item', 'reorder_production::item', 'delete_production::item', 'delete_any_production::item', 'force_delete_production::item', 'force_delete_any_production::item', 'export_production::item', 'send_production::item',
             // Production: View Only
             'view_production', 'view_any_production',
-            // Page: Kalkulator Harga (TIDAK ADA untuk Management)
+
+            // DIHILANGKAN UNTUK MANAGEMENT:
+            // 'view_master::cost', ...,
+            // 'view_poly::cost', ...,
+            // 'view_price::calculation', ...,
+            // 'view_production::category', ...,
+            // 'view_production::item', ...,
             // 'page_ProductionCalculator',
         ];
         $roleManagement->syncPermissions(array_intersect($managementPermissionsList, $allShieldGeneratedPermissions));
@@ -123,28 +119,18 @@ class UserRolePermissionSeeder extends Seeder
 
         // Sales permissions
         $salesPermissionsList = [
-            // Customer: CRUD
-            'view_customer', 'view_any_customer', 'create_customer', 'update_customer', 'delete_customer', 'delete_any_customer', 'export_customer',
-            // Product: CRUD
-            'view_product', 'view_any_product', 'create_product', 'update_product', 'delete_product', 'delete_any_product', 'export_product', 'update_product_stock',
-            // Invoice: CRUD
-            'view_invoice', 'view_any_invoice', 'create_invoice', 'update_invoice', 'delete_invoice', 'delete_any_invoice',
-            // Payment: CRUD
-            'view_payment', 'view_any_payment', 'create_payment', 'update_payment', 'delete_payment', 'delete_any_payment', 'export_payment',
-            // MasterCost (Biaya Produksi): CRUD
-            'view_master::cost', 'view_any_master::cost', 'create_master::cost', 'update_master::cost', 'restore_master::cost', 'restore_any_master::cost', 'replicate_master::cost', 'reorder_master::cost', 'delete_master::cost', 'delete_any_master::cost', 'force_delete_master::cost', 'force_delete_any_master::cost', 'export_master::cost', 'send_master::cost',
-            // PolyCost (Biaya Poly): CRUD
-            'view_poly::cost', 'view_any_poly::cost', 'create_poly::cost', 'update_poly::cost', 'restore_poly::cost', 'restore_any_poly::cost', 'replicate_poly::cost', 'reorder_poly::cost', 'delete_poly::cost', 'delete_any_poly::cost', 'force_delete_poly::cost', 'force_delete_any_poly::cost', 'export_poly::cost', 'send_poly::cost',
-            // PriceCalculation (Riwayat Kalkulasi): CRUD
-            'view_price::calculation', 'view_any_price::calculation', 'create_price::calculation', 'update_price::calculation', 'restore_price::calculation', 'restore_any_price::calculation', 'replicate_price::calculation', 'reorder_price::calculation', 'delete_price::calculation', 'delete_any_price::calculation', 'force_delete_price::calculation', 'force_delete_any_price::calculation', 'export_price::calculation', 'send_price::calculation',
-            // ProductionCategory (Kategori Produksi): CRUD
-            'view_production::category', 'view_any_production::category', 'create_production::category', 'update_production::category', 'restore_production::category', 'restore_any_production::category', 'replicate_production::category', 'reorder_production::category', 'delete_production::category', 'delete_any_production::category', 'force_delete_production::category', 'force_delete_any_production::category', 'export_production::category', 'send_production::category',
-            // ProductionItem (Item Produksi): CRUD
-            'view_production::item', 'view_any_production::item', 'create_production::item', 'update_production::item', 'restore_production::item', 'restore_any_production::item', 'replicate_production::item', 'reorder_production::item', 'delete_production::item', 'delete_any_production::item', 'force_delete_production::item', 'force_delete_any_production::item', 'export_production::item', 'send_production::item',
-            // Production: View Only
-            'view_production', 'view_any_production',
-            // Page: Kalkulator Harga (TIDAK ADA untuk Management)
+            'view_any_customer', 'view_customer', 'create_customer', 'update_customer', 'delete_customer', 'delete_any_customer', 'export_customer',
+            'view_any_product', 'view_product', 'create_product', 'update_product', 'delete_product', 'delete_any_product', 'update_product_stock',
+            // Pastikan 'create_invoice' ada di sini agar Sales bisa membuat Invoice
+            'view_any_invoice', 'view_invoice', 'create_invoice', 'update_invoice', 'delete_invoice', 'delete_any_invoice',
             'page_ProductionCalculator',
+            'view_any_poly::cost', 'view_poly::cost', 'create_poly::cost', 'update_poly::cost', 'delete_poly::cost', 'delete_any_poly::cost',
+            'view_any_master::cost', 'view_master::cost', 'create_master::cost', 'update_master::cost', 'delete_master::cost', 'delete_any_master::cost',
+            'view_any_price::calculation', 'view_price::calculation', 'create_price::calculation', 'update_price::calculation', 'delete_price::calculation', 'delete_any_price::calculation',
+            'view_any_production::category', 'view_production::category', 'create_production::category', 'update_production::category', 'delete_production::category', 'delete_any_production::category',
+            'view_any_production::item', 'view_production::item', 'create_production::item', 'update_production::item', 'delete_production::item', 'delete_any_production::item',
+            'widget_InvoiceChart', 'widget_LowStockProducts', 'widget_StatsOverview',
+            'view_any_payment', 'view_payment', // Sales bisa lihat payment
         ];
         $roleSales->syncPermissions(array_intersect($salesPermissionsList, $allShieldGeneratedPermissions));
 

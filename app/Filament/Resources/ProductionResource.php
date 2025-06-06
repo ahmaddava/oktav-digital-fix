@@ -22,6 +22,15 @@ class ProductionResource extends Resource
     protected static ?string $navigationGroup = 'Produksi';
     protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
 
+    /**
+     * This method controls the visibility of the "Create" button.
+     * Returning false will hide it for all users.
+     */
+    public static function canCreate(): bool
+    {
+        return false;
+    }
+
     public static function form(Form $form): Form
     {
         return $form
