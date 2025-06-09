@@ -18,6 +18,7 @@ use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
+use Filament\Navigation\MenuItem;
 
 class AdminPanelProvider extends PanelProvider
 {
@@ -36,6 +37,14 @@ class AdminPanelProvider extends PanelProvider
             ->pages([
                 Pages\Dashboard::class,
                 \App\Filament\Pages\ProductionCalculator::class,
+                \App\Filament\Pages\EditPassword::class,
+            ])
+            ->userMenuItems([
+                MenuItem::make()
+                    ->label('Ubah Password')
+                    ->url(fn (): string => \App\Filament\Pages\EditPassword::getUrl())
+                    ->icon('heroicon-s-key'),
+                // 'logout' => MenuItem::make()->label('Log out'), // Ini adalah item logout default
             ])
             ->resources([
                 \App\Filament\Resources\ProductionCategoryResource::class,

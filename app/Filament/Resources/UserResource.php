@@ -140,7 +140,6 @@ class UserResource extends Resource
 
                 // Pilihan untuk Role menggunakan spatie/laravel-permission
                 Forms\Components\Select::make('roles')
-                    ->multiple()
                     ->relationship('roles', 'name') // 'roles' adalah nama relasi di model User, 'name' adalah kolom yang ditampilkan dari tabel roles
                     ->preload() // Memuat opsi saat halaman dimuat
                     ->searchable()

@@ -5,7 +5,6 @@ namespace App\Filament\Resources\InvoiceResource\Pages;
 use App\Filament\Resources\InvoiceResource;
 use Filament\Actions;
 use Filament\Resources\Pages\ListRecords;
-use App\Filament\Resources\InvoiceResource\Widgets\PaymentStatsWidget;
 
 class ListInvoices extends ListRecords
 {
@@ -15,12 +14,6 @@ class ListInvoices extends ListRecords
     {
         return [
             Actions\CreateAction::make(),
-        ];
-    }
-    protected function getHeaderWidgets(): array
-    {
-        return [
-            PaymentStatsWidget::class,
         ];
     }
 }
