@@ -68,15 +68,15 @@ class UserRolePermissionSeeder extends Seeder
         $roleManager = Role::firstOrCreate(['name' => 'manager', 'guard_name' => 'web']);
         $roleSales = Role::firstOrCreate(['name' => 'sales', 'guard_name' => 'web']);
         $roleProduksi = Role::firstOrCreate(['name' => 'produksi', 'guard_name' => 'web']);
-        $roleManagement = Role::firstOrCreate(['name' => 'management', 'guard_name' => 'web']); // Role baru
+        $roleAdministrasi = Role::firstOrCreate(['name' => 'administrasi', 'guard_name' => 'web']); // Role baru
 
         // 3. Assign permissions to roles
 
         // Admin gets ALL permissions DEFINED in $allShieldGeneratedPermissions
         $roleAdmin->syncPermissions(Permission::all());
 
-        // Management permissions
-        $managementPermissionsList = [
+        // administrasi permissions
+        $administrasiPermissionsList = [
             // Customer: CRUD
             'view_customer', 'view_any_customer', 'create_customer', 'update_customer', 'delete_customer', 'delete_any_customer', 'export_customer',
             // Product: CRUD
@@ -96,7 +96,7 @@ class UserRolePermissionSeeder extends Seeder
             // 'view_production::item', ...,
             // 'page_ProductionCalculator',
         ];
-        $roleManagement->syncPermissions(array_intersect($managementPermissionsList, $allShieldGeneratedPermissions));
+        $roleAdministrasi->syncPermissions(array_intersect($administrasiPermissionsList, $allShieldGeneratedPermissions));
 
 
         // Manager permissions: CRUD for all resources except UserResource. Can access Production Calculator.
@@ -169,9 +169,9 @@ class UserRolePermissionSeeder extends Seeder
             ['name' => 'Produksi User', 'password' => Hash::make('produksi123')]
         )->assignRole($roleProduksi);
 
-        User::firstOrCreate( // User baru untuk role management
-            ['email' => 'management@example.com'],
-            ['name' => 'Management User', 'password' => Hash::make('management123')]
-        )->assignRole($roleManagement);
+        User::firstOrCreate( // User baru untuk role administrasi
+            ['email' => 'administrasi@example.com'],
+            ['name' => 'administrasi User', 'password' => Hash::make('administrasi123')]
+        )->assignRole($roleAdministrasi);
     }
 }
