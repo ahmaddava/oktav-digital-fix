@@ -25,21 +25,6 @@ class ListPayments extends ListRecords
         ];
     }
 
-    // 2. HEADER ACTIONS HANYA UNTUK ACTION
-    // protected function getHeaderActions(): array
-    // {
-    //     return [
-    //         Actions\CreateAction::make()
-    //             ->label('Buat Pembayaran Baru')
-    //             ->icon('heroicon-o-plus'),
-    //         Actions\Action::make('create_invoice')
-    //             ->label('Buat Invoice Baru')
-    //             ->icon('heroicon-o-document-plus')
-    //             ->url(InvoiceResource::getUrl('create'))
-    //             ->color('primary'),
-    //     ];
-    // }
-
     public function getTabs(): array
     {
         return [

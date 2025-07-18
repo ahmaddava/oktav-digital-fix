@@ -22,7 +22,6 @@ class EditPassword extends Page
 
     protected static bool $shouldRegisterNavigation = false;
 
-    // PERBAIKAN: Properti title harus static
     protected static ?string $title = 'Ubah Password';
 
     public ?array $data = [];

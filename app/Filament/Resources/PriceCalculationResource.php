@@ -30,6 +30,8 @@ class PriceCalculationResource extends Resource
         ];
     }
 
+    // This form method is primarily for the default create/edit pages if you were to use them.
+    // Since we're redirecting 'edit' to the calculator, this form might not be directly used for 'edit'.
     public static function form(Form $form): Form
     {
         return $form
@@ -89,32 +91,33 @@ class PriceCalculationResource extends Resource
     {
         return $table
             ->columns([
+                Tables\Columns\TextColumn::make('box_type_selection')
+                    ->label('Jenis Box')
+                    ->searchable()
+                    ->sortable()
+                    ->badge()
+                    ->color(fn (string $state): string => match ($state) {
+                        'TAB' => 'primary',
+                        'BUSA' => 'info',
+                        'JENDELA' => 'success',
+                        'BUKU PITA' => 'warning',
+                        'BUKU MAGNET' => 'danger',
+                        'SELONGSONG' => 'gray',
+                        'Double WallTreasury' => 'rose',
+                        default => 'secondary',
+                    }),
                 Tables\Columns\TextColumn::make('product_name')
                     ->label('Nama Produk')
                     ->searchable()
                     ->sortable(),
-                Tables\Columns\TextColumn::make('size')
-                    ->label('Ukuran')
-                    ->badge()
-                    ->color(fn (string $state): string => match ($state) {
-                        'XS' => 'gray',
-                        'Kecil' => 'info',
-                        'Sedang' => 'success',
-                        'Besar' => 'warning',
-                        'XXL' => 'danger',
-                        default => 'primary',
-                    }),
-                Tables\Columns\TextColumn::make('total_material_cost')
-                    ->label('Biaya Material')
+                Tables\Columns\TextColumn::make('summary_selling_price_per_item')
+                    ->label('Harga Satuan')
                     ->money('IDR')
-                    ->sortable(),
-                Tables\Columns\TextColumn::make('production_cost')
-                    ->label('Ongkos Produksi')
-                    ->money('IDR')
-                    ->sortable(),
-                Tables\Columns\TextColumn::make('total_price')
-                    ->label('Total Harga')
-                    ->money('IDR')
+                    ->sortable()
+                    ->weight('bold')
+                    ->color('primary'),
+                Tables\Columns\TextColumn::make('total_price_estimate_display')
+                    ->label('Total Harga Estimasi')
                     ->sortable()
                     ->weight('bold')
                     ->color('success'),
@@ -124,14 +127,16 @@ class PriceCalculationResource extends Resource
                     ->sortable(),
             ])
             ->filters([
-                Tables\Filters\SelectFilter::make('size')
-                    ->label('Ukuran')
+                Tables\Filters\SelectFilter::make('box_type_selection')
+                    ->label('Jenis Box')
                     ->options([
-                        'XS' => 'XS',
-                        'Kecil' => 'Kecil',
-                        'Sedang' => 'Sedang',
-                        'Besar' => 'Besar',
-                        'XXL' => 'XXL'
+                        'TAB' => 'TAB',
+                        'BUSA' => 'BUSA',
+                        'JENDELA' => 'JENDELA',
+                        'BUKU PITA' => 'BUKU PITA',
+                        'BUKU MAGNET' => 'BUKU MAGNET',
+                        'SELONGSONG' => 'SELONGSONG',
+                        'Double WallTreasury' => 'Double Wall Treasury'
                     ]),
                 Tables\Filters\Filter::make('created_at')
                     ->form([
@@ -154,7 +159,14 @@ class PriceCalculationResource extends Resource
             ])
             ->actions([
                 Tables\Actions\ViewAction::make(),
-                Tables\Actions\EditAction::make(),
+                // THIS IS THE CRUCIAL CHANGE:
+                Tables\Actions\Action::make('edit_in_calculator') // Custom action
+                    ->label('Ubah') // "Ubah" label for the button
+                    ->icon('heroicon-o-pencil-square')
+                    ->url(fn (PriceCalculation $record): string => ProductionCalculator::getUrl(['recordId' => $record->id]))
+                    ->color('warning'),
+                // END OF CRUCIAL CHANGE
+
                 Tables\Actions\DeleteAction::make(),
                 Tables\Actions\Action::make('duplicate')
                     ->label('Duplikat')
@@ -163,9 +175,8 @@ class PriceCalculationResource extends Resource
                         $newRecord = $record->replicate();
                         $newRecord->product_name = $record->product_name . ' (Copy)';
                         $newRecord->save();
-                        
-                        // PERBAIKAN: Gunakan getUrl() dari halaman
-                        return redirect()->to(ProductionCalculator::getUrl());
+
+                        return redirect()->to(ProductionCalculator::getUrl(['recordId' => $newRecord->id]));
                     })
                     ->color('info'),
             ])
@@ -185,53 +196,148 @@ class PriceCalculationResource extends Resource
                     ->schema([
                         Infolists\Components\TextEntry::make('product_name')
                             ->label('Nama Produk'),
-                        Infolists\Components\TextEntry::make('size')
-                            ->label('Ukuran')
+                        Infolists\Components\TextEntry::make('box_type_selection')
+                            ->label('Jenis Box')
                             ->badge(),
+                        Infolists\Components\TextEntry::make('quantity')
+                            ->label('Jumlah Pesan'),
+                        Infolists\Components\TextEntry::make('master_cost_size_selected')
+                            ->label('Ukuran Box (Master Cost)')
+                            ->badge(),
+                        Infolists\Components\TextEntry::make('poly_dimension_selected')
+                            ->label('Dimensi Poly')
+                            ->badge()
+                            ->placeholder('Tidak ada'),
+                        Infolists\Components\TextEntry::make('include_knife_cost')
+                            ->label('Termasuk Ongkos Pisau')
+                            ->badge()
+                            ->formatStateUsing(fn (string $state): string => $state === 'ada' ? 'Ada' : 'Tidak Ada'),
+                        Infolists\Components\TextEntry::make('custom_profit_input')
+                            ->label('Profit Kustom (%)')
+                            ->suffix('%')
+                            ->numeric(2)
+                            ->placeholder('Tidak diterapkan'),
                         Infolists\Components\TextEntry::make('created_at')
                             ->label('Tanggal Kalkulasi')
                             ->dateTime('d/m/Y H:i:s'),
                     ])->columns(3),
 
-                Infolists\Components\Section::make('Detail Material')
+                Infolists\Components\Section::make('Dimensi Box Input')
                     ->schema([
-                        Infolists\Components\RepeatableEntry::make('selected_items')
-                            ->label('Material Terpilih')
-                            ->schema([
-                                Infolists\Components\TextEntry::make('category')
-                                    ->label('Kategori')
-                                    ->badge(),
-                                Infolists\Components\TextEntry::make('name')
-                                    ->label('Nama Item'),
-                                Infolists\Components\TextEntry::make('price')
-                                    ->label('Harga')
-                                    ->money('IDR'),
-                            ])
-                            ->columns(3),
-                    ]),
+                        Infolists\Components\TextEntry::make('atas_panjang')
+                            ->label('Panjang Box Atas')
+                            ->suffix('cm')
+                            ->numeric(2)
+                            ->placeholder('0.0'),
+                        Infolists\Components\TextEntry::make('atas_lebar')
+                            ->label('Lebar Box Atas')
+                            ->suffix('cm')
+                            ->numeric(2)
+                            ->placeholder('0.0'),
+                        Infolists\Components\TextEntry::make('atas_tinggi')
+                            ->label('Tinggi Box Atas')
+                            ->suffix('cm')
+                            ->numeric(2)
+                            ->placeholder('0.0'),
+                        Infolists\Components\TextEntry::make('bawah_panjang')
+                            ->label('Panjang Box Bawah')
+                            ->suffix('cm')
+                            ->numeric(2)
+                            ->placeholder('0.0'),
+                        Infolists\Components\TextEntry::make('bawah_lebar')
+                            ->label('Lebar Box Bawah')
+                            ->suffix('cm')
+                            ->numeric(2)
+                            ->placeholder('0.0'),
+                        Infolists\Components\TextEntry::make('bawah_tinggi')
+                            ->label('Tinggi Box Bawah')
+                            ->suffix('cm')
+                            ->numeric(2)
+                            ->placeholder('0.0'),
+                    ])->columns(3),
+
+                Infolists\Components\Section::make('Pilihan Komponen Material')
+                    ->schema([
+                        Infolists\Components\TextEntry::make('is_board_included')
+                            ->label('Sertakan Board')
+                            ->formatStateUsing(fn (bool $state): string => $state ? 'Ya' : 'Tidak')
+                            ->badge()
+                            ->color(fn (bool $state): string => $state ? 'success' : 'danger'),
+                        Infolists\Components\TextEntry::make('selected_items_ids')
+                            ->label('Item Board Terpilih')
+                            ->formatStateUsing(function ($state) {
+                                $decoded = json_decode($state, true) ?? [];
+                                return isset($decoded['board']) ? \App\Models\ProductionItem::find($decoded['board'])->name : 'N/A';
+                            })
+                            ->hidden(fn ($record) => !$record->is_board_included || !isset(json_decode($record->selected_items_ids, true)['board'])),
+                        Infolists\Components\TextEntry::make('is_cover_luar_included')
+                            ->label('Sertakan Cover Luar')
+                            ->formatStateUsing(fn (bool $state): string => $state ? 'Ya' : 'Tidak')
+                            ->badge()
+                            ->color(fn (bool $state): string => $state ? 'success' : 'danger'),
+                        Infolists\Components\TextEntry::make('selected_items_ids')
+                            ->label('Item Cover Luar Terpilih')
+                            ->formatStateUsing(function ($state) {
+                                $decoded = json_decode($state, true) ?? [];
+                                return isset($decoded['cover_luar']) ? \App\Models\ProductionItem::find($decoded['cover_luar'])->name : 'N/A';
+                            })
+                            ->hidden(fn ($record) => !$record->is_cover_luar_included || !isset(json_decode($record->selected_items_ids, true)['cover_luar'])),
+                        Infolists\Components\TextEntry::make('is_cover_dalam_included')
+                            ->label('Sertakan Cover Dalam')
+                            ->formatStateUsing(fn (bool $state): string => $state ? 'Ya' : 'Tidak')
+                            ->badge()
+                            ->color(fn (bool $state): string => $state ? 'success' : 'danger'),
+                        Infolists\Components\TextEntry::make('selected_items_ids')
+                            ->label('Item Cover Dalam Terpilih')
+                            ->formatStateUsing(function ($state) {
+                                $decoded = json_decode($state, true) ?? [];
+                                return isset($decoded['cover_dalam']) ? \App\Models\ProductionItem::find($decoded['cover_dalam'])->name : 'N/A';
+                            })
+                            ->hidden(fn ($record) => !$record->is_cover_dalam_included || !isset(json_decode($record->selected_items_ids, true)['cover_dalam'])),
+                        Infolists\Components\TextEntry::make('is_busa_included')
+                            ->label('Sertakan Busa')
+                            ->formatStateUsing(fn (bool $state): string => $state ? 'Ya' : 'Tidak')
+                            ->badge()
+                            ->color(fn (bool $state): string => $state ? 'success' : 'danger'),
+                        Infolists\Components\TextEntry::make('selected_items_ids')
+                            ->label('Item Busa Terpilih')
+                            ->formatStateUsing(function ($state) {
+                                $decoded = json_decode($state, true) ?? [];
+                                return isset($decoded['busa']) ? \App\Models\ProductionItem::find($decoded['busa'])->name : 'N/A';
+                            })
+                            ->hidden(fn ($record) => !$record->is_busa_included || !isset(json_decode($record->selected_items_ids, true)['busa'])),
+                    ])->columns(2),
 
                 Infolists\Components\Section::make('Rincian Biaya')
                     ->schema([
-                        Infolists\Components\TextEntry::make('total_material_cost')
+                        Infolists\Components\TextEntry::make('summary_total_material_cost')
                             ->label('Total Biaya Material')
                             ->money('IDR'),
-                        Infolists\Components\TextEntry::make('production_cost')
+                        Infolists\Components\TextEntry::make('summary_total_production_work_cost')
                             ->label('Ongkos Produksi')
                             ->money('IDR'),
-                        Infolists\Components\TextEntry::make('poly_cost')
+                        Infolists\Components\TextEntry::make('summary_total_poly_cost')
                             ->label('Ongkos Poly')
                             ->money('IDR')
                             ->placeholder('Tidak ada'),
-                        Infolists\Components\TextEntry::make('knife_cost')
+                        Infolists\Components\TextEntry::make('summary_actual_knife_cost')
                             ->label('Ongkos Pisau')
                             ->money('IDR')
                             ->placeholder('Tidak ada'),
-                        Infolists\Components\TextEntry::make('profit')
-                            ->label('Profit')
+                        Infolists\Components\TextEntry::make('summary_profit_percentage_applied')
+                            ->label('Profit Diterapkan (%)')
+                            ->suffix('%')
+                            ->numeric(2),
+                        Infolists\Components\TextEntry::make('summary_total_profit_amount')
+                            ->label('Jumlah Profit')
                             ->money('IDR'),
-                        Infolists\Components\TextEntry::make('total_price')
-                            ->label('TOTAL HARGA')
+                        Infolists\Components\TextEntry::make('summary_selling_price_per_item')
+                            ->label('Harga Jual Per Item')
                             ->money('IDR')
+                            ->weight('bold')
+                            ->color('primary'),
+                        Infolists\Components\TextEntry::make('total_price_estimate_display')
+                            ->label('TOTAL HARGA ESTIMASI')
                             ->weight('bold')
                             ->color('success')
                             ->size('lg'),
@@ -259,9 +365,10 @@ class PriceCalculationResource extends Resource
     {
         return [
             'index' => Pages\ListPriceCalculations::route('/'),
-            'create' => Pages\CreatePriceCalculation::route('/create'),
+            // 'create' => Pages\CreatePriceCalculation::route('/create'), // Baris ini dihapus
             'view' => Pages\ViewPriceCalculation::route('/{record}'),
-            'edit' => Pages\EditPriceCalculation::route('/{record}/edit'),
+            // Remove the default 'edit' page route to prevent direct access to the basic form
+            // 'edit' => Pages\EditPriceCalculation::route('/{record}/edit'),
         ];
     }
 }

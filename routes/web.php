@@ -23,5 +23,4 @@ Route::get('/invoices/print/{invoice}', [InvoiceController::class, 'print'])
         'auth',
         'permission:invoice.create',
     ])->group(function () {
-        // Rute yang dilindungi
     }); 

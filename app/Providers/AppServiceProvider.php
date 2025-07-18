@@ -29,11 +29,6 @@ class AppServiceProvider extends ServiceProvider
         // Format tanggal khusus untuk Indonesia
         config(['app.locale' => 'id']);
         
-        // Aktifkan Debugbar jika di environment local
-        // if (app()->environment('local') && class_exists(Debugbar::class)) {
-        //     Debugbar::enable();
-        // }
-        
         // Monitoring query untuk development
         if (app()->environment('local')) {
             DB::listen(function ($query) {
