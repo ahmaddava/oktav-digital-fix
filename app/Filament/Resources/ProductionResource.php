@@ -15,6 +15,7 @@ use Filament\Notifications\Notification;
 use Illuminate\Support\HtmlString;
 use Illuminate\Support\Facades\Storage;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 
 class ProductionResource extends Resource
 {
@@ -181,11 +182,11 @@ class ProductionResource extends Resource
                             ->columnSpanFull(),
                         Forms\Components\DatePicker::make('started_at') // Changed to DatePicker
                             ->label('Mulai Produksi')
-                            ->hidden(fn (Forms\Get $get): bool => $get('status') !== 'started' && $get('status') !== 'completed')
+                            ->hidden(fn(Forms\Get $get): bool => $get('status') !== 'started' && $get('status') !== 'completed')
                             ->dehydrated(),
                         Forms\Components\DateTimePicker::make('completed_at')
                             ->label('Tanggal Selesai')
-                            ->hidden(fn (Forms\Get $get): bool => $get('status') !== 'completed')
+                            ->hidden(fn(Forms\Get $get): bool => $get('status') !== 'completed')
                             ->dehydrated(),
                         Forms\Components\Textarea::make('notes_invoice')
                             ->label('Catatan')
@@ -209,23 +210,23 @@ class ProductionResource extends Resource
                     ->label('Mesin')
                     ->badge()
                     ->colors([
-                        'primary' => fn ($state): bool => $state === 'mesin_1',
-                        'success' => fn ($state): bool => $state === 'mesin_2',
+                        'primary' => fn($state): bool => $state === 'mesin_1',
+                        'success' => fn($state): bool => $state === 'mesin_2',
                     ]),
 
                 Tables\Columns\TextColumn::make('status')
                     ->label('Status')
                     ->badge()
-                    ->formatStateUsing(fn (string $state): string => match ($state) {
+                    ->formatStateUsing(fn(string $state): string => match ($state) {
                         'pending' => 'Pending',
                         'started' => 'Mulai Produksi',
                         'completed' => 'Selesai',
                         default => $state,
                     })
                     ->colors([
-                        'warning' => fn ($state): bool => $state === 'pending',
-                        'info' => fn ($state): bool => $state === 'started',
-                        'success' => fn ($state): bool => $state === 'completed',
+                        'warning' => fn($state): bool => $state === 'pending',
+                        'info' => fn($state): bool => $state === 'started',
+                        'success' => fn($state): bool => $state === 'completed',
                     ]),
 
                 Tables\Columns\TextColumn::make('started_at')
@@ -287,7 +288,7 @@ class ProductionResource extends Resource
                     ->label('Mulai Produksi')
                     ->icon('heroicon-o-play')
                     ->color('info')
-                    ->visible(fn (Production $record): bool => $record->status === 'pending')
+                    ->visible(fn(Production $record): bool => $record->status === 'pending')
                     ->requiresConfirmation()
                     ->action(function (Production $record): void {
                         $record->update([
@@ -306,7 +307,7 @@ class ProductionResource extends Resource
                     ->label('Update Gagal Cetak')
                     ->icon('heroicon-o-exclamation-triangle')
                     ->color('warning')
-                    ->visible(fn (Production $record): bool => $record->status === 'started')
+                    ->visible(fn(Production $record): bool => $record->status === 'started')
                     ->form([
                         Forms\Components\TextInput::make('failed_prints')
                             ->label('Jumlah Gagal Cetak')
@@ -334,22 +335,52 @@ class ProductionResource extends Resource
                     }),
 
                 // Action untuk menyelesaikan produksi
+                // Ganti action ini
                 Tables\Actions\Action::make('completeProduction')
                     ->label('Selesai Produksi')
                     ->icon('heroicon-o-check-circle')
                     ->color('success')
-                    ->visible(fn (Production $record): bool => $record->status === 'started')
+                    ->visible(fn(Production $record): bool => $record->status === 'started')
                     ->requiresConfirmation()
                     ->action(function (Production $record): void {
-                        $record->update([
-                            'status' => 'completed',
-                            'completed_at' => now(),
-                        ]);
+                        try {
+                            DB::transaction(function () use ($record) {
+                                // Load relasi invoice dan produknya untuk efisiensi
+                                $record->load('invoice.products');
 
-                        Notification::make()
-                            ->title('Produksi selesai')
-                            ->success()
-                            ->send();
+                                if ($record->invoice && $record->invoice->products->isNotEmpty()) {
+                                    foreach ($record->invoice->products as $product) {
+                                        // Hanya kurangi stok jika tipenya 'digital_print'
+                                        if ($product->type === 'digital_print') {
+                                            // --- PERUBAHAN DI SINI ---
+                                            // Stok hanya dikurangi sejumlah kuantitas pesanan di invoice.
+                                            // Angka `failed_prints` kini hanya berfungsi sebagai catatan.
+                                            $totalReduction = $product->pivot->quantity;
+
+                                            // Kurangi stok produk
+                                            $product->decrement('stock', $totalReduction);
+                                        }
+                                    }
+                                }
+
+                                // Update status produksi setelah stok berhasil dikurangi
+                                $record->update([
+                                    'status' => 'completed',
+                                    'completed_at' => now(),
+                                ]);
+                            });
+
+                            Notification::make()
+                                ->title('Produksi selesai & Stok Diperbarui')
+                                ->success()
+                                ->send();
+                        } catch (\Exception $e) {
+                            Notification::make()
+                                ->title('Gagal menyelesaikan produksi')
+                                ->body($e->getMessage())
+                                ->danger()
+                                ->send();
+                        }
                     }),
                 Tables\Actions\EditAction::make(),
                 Tables\Actions\DeleteAction::make(),
@@ -364,17 +395,44 @@ class ProductionResource extends Resource
                         ->requiresConfirmation()
                         ->deselectRecordsAfterCompletion()
                         ->action(function (Tables\Actions\BulkAction $action): void {
-                            $action->getRecords()->each(function (Production $record): void {
-                                if ($record->status === 'started') {
-                                    $record->update([
-                                        'status' => 'completed',
-                                        'completed_at' => now(),
-                                    ]);
+                            foreach ($action->getRecords() as $record) {
+                                if ($record->status !== 'started') {
+                                    continue;
                                 }
-                            });
+
+                                try {
+                                    DB::transaction(function () use ($record) {
+                                        $record->load('invoice.products');
+
+                                        if ($record->invoice && $record->invoice->products->isNotEmpty()) {
+                                            foreach ($record->invoice->products as $product) {
+                                                if ($product->type === 'digital_print') {
+                                                    // --- PERUBAHAN DI SINI ---
+                                                    // Stok hanya dikurangi sejumlah kuantitas pesanan.
+                                                    $totalReduction = $product->pivot->quantity;
+                                                    $product->decrement('stock', $totalReduction);
+                                                }
+                                            }
+                                        }
+
+                                        $record->update([
+                                            'status' => 'completed',
+                                            'completed_at' => now(),
+                                        ]);
+                                    });
+                                } catch (\Exception $e) {
+                                    Notification::make()
+                                        ->title('Gagal memproses produksi: ' . $record->invoice?->invoice_number)
+                                        ->body($e->getMessage())
+                                        ->danger()
+                                        ->send();
+                                    continue;
+                                }
+                            }
 
                             Notification::make()
-                                ->title('Semua produksi terpilih telah diselesaikan')
+                                ->title('Produksi terpilih telah diproses')
+                                ->body('Status produksi telah diubah dan stok telah diperbarui.')
                                 ->success()
                                 ->send();
                         }),

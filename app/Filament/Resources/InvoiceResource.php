@@ -30,25 +30,17 @@ use Filament\Forms\Get;
 use Filament\Forms\Set;
 use BezhanSalleh\FilamentShield\Contracts\HasShieldPermissions;
 use Filament\Forms\Components\FileUpload;
+use Filament\Forms\Components\ToggleButtons;
+use Illuminate\Support\Collection; // Import Collection
 
 class InvoiceResource extends Resource implements HasShieldPermissions
 {
-    // Variable untuk menyimpan data customer dan produk
-    protected static $customerOptions = null;
+    // Remove global static variables from here
+    // protected static $customerOptions = null;
+    // protected static $productOptions = null;
 
     protected static ?string $navigationGroup = 'Management';
 
-    protected static $productOptions = null;
-
-    protected static function bootHasTable(): void
-    {
-        parent::bootHasTable();
-        
-        if (self::$productOptions === null) {
-            self::$productOptions = Product::with('prices')->get();
-        }
-    }
-    
     protected static ?string $model = Invoice::class;
 
     protected static ?string $navigationIcon = 'heroicon-o-document-text';
@@ -56,74 +48,68 @@ class InvoiceResource extends Resource implements HasShieldPermissions
     public static function getPermissionPrefixes(): array
     {
         return [
-            'view', 'view_any', 'create', 'update', 'delete', 'delete_any',
+            'view',
+            'view_any',
+            'create',
+            'update',
+            'delete',
+            'delete_any',
         ];
     }
-    
 
-    
-public static function form(Form $form): Form
-{
-    // Ambil opsi customer sekali saja
-    if (self::$customerOptions === null) {
-        self::$customerOptions = Customer::select('nama_customer', 'nomor_customer')
-            ->orderBy('nama_customer')
-            ->get()
-            ->mapWithKeys(fn ($customer) => [
-                $customer->nama_customer => "{$customer->nama_customer} - {$customer->nomor_customer}"
-            ]);
-    }
-    
-    // Ambil opsi produk sekali saja
-    if (self::$productOptions === null) {
-        self::$productOptions = Product::with('prices')
-            ->select('id', 'product_name', 'price')
-            ->orderBy('product_name')
-            ->get();
-    }
-    
-    // Generate invoice number dengan logika yang benar
-    $today = now()->timezone('Asia/Jakarta');
-    $datePart = $today->format('dmy'); // format: ddmmyy
-    
-    // Cari invoice dengan tanggal hari ini berdasarkan suffix invoice number
-    $todayPattern = 'INV-%' . $datePart;
-    
-    $lastInvoiceToday = Invoice::where('invoice_number', 'LIKE', $todayPattern)
-        ->orderByDesc('invoice_number')
-        ->first();
-    
-    // Jika tidak ada invoice hari ini, mulai dari 1
-    if (!$lastInvoiceToday) {
-        $sequenceNumber = 1;
-    } else {
-        // Extract sequence number dari invoice number yang ada
-        // Format: INV-001ddmmyy
-        $existingInvoiceNumber = $lastInvoiceToday->invoice_number;
-        
-        // Ambil 3 digit setelah "INV-" dan sebelum tanggal (6 digit terakhir)
-        $sequenceStr = substr($existingInvoiceNumber, 4, 3); // ambil karakter ke-4 sampai ke-6
-        $lastSequence = (int) $sequenceStr;
-        $sequenceNumber = $lastSequence + 1;
-    }
-    
-    $invoiceNumber = 'INV-' . str_pad($sequenceNumber, 3, '0', STR_PAD_LEFT) . $datePart;
-        
+
+    public static function form(Form $form): Form
+    {
+        // Provide options dynamically using local static cache within the closure
+        static $customerOptionsCache = null;
+        if ($customerOptionsCache === null) {
+            $customerOptionsCache = Customer::select('nama_customer', 'nomor_customer')
+                ->orderBy('nama_customer')
+                ->get()
+                ->mapWithKeys(fn($customer) => [
+                    $customer->nama_customer => "{$customer->nama_customer} - {$customer->nomor_customer}"
+                ]);
+        }
+
+        static $productOptionsCache = null;
+        if ($productOptionsCache === null) {
+            $productOptionsCache = Product::with('prices')
+                ->select('id', 'product_name', 'price')
+                ->orderBy('product_name')
+                ->get();
+        }
+
+        // Generate invoice number dengan logika yang benar
+        $today = now()->timezone('Asia/Jakarta');
+        $datePart = $today->format('dmy');
+
+        $todayPattern = 'INV-%' . $datePart;
+
+        $lastInvoiceToday = Invoice::where('invoice_number', 'LIKE', $todayPattern)
+            ->orderByDesc('invoice_number')
+            ->first();
+
+        if (!$lastInvoiceToday) {
+            $sequenceNumber = 1;
+        } else {
+            $existingInvoiceNumber = $lastInvoiceToday->invoice_number;
+            $sequenceStr = substr($existingInvoiceNumber, 4, 3);
+            $lastSequence = (int) $sequenceStr;
+            $sequenceNumber = $lastSequence + 1;
+        }
+
+        $invoiceNumber = 'INV-' . str_pad($sequenceNumber, 3, '0', STR_PAD_LEFT) . $datePart;
+
 
         return $form
             ->schema([
                 Hidden::make('grand_total')
                     ->reactive()
                     ->default(0),
-                    
-                // Set default values for payment fields
-                Hidden::make('status')
-                    ->default('unpaid'),
-                Hidden::make('payment_method')
-                    ->default('transfer'),
+
                 Hidden::make('dp')
                     ->default(0),
-                    
+
                 Wizard::make([
                     Wizard\Step::make('Order Details')
                         ->icon('heroicon-o-document-text')
@@ -134,14 +120,14 @@ public static function form(Form $form): Form
                                         TextInput::make('invoice_number')
                                             ->label('Invoice Number')
                                             ->required()
-                                            ->unique()
+                                            ->unique(ignoreRecord: true)
                                             ->disabled()
                                             ->dehydrated()
                                             ->default($invoiceNumber),
-                                        
+
                                         Select::make('name_customer')
                                             ->label('Customer Name')
-                                            ->options(self::$customerOptions)
+                                            ->options($customerOptionsCache) // Use local cache
                                             ->searchable()
                                             ->getSearchResultsUsing(function (string $search) {
                                                 return Customer::where('nama_customer', 'like', $search . '%')
@@ -149,7 +135,7 @@ public static function form(Form $form): Form
                                                     ->limit(10)
                                                     ->orderBy('nama_customer')
                                                     ->get()
-                                                    ->mapWithKeys(fn ($customer) => [
+                                                    ->mapWithKeys(fn($customer) => [
                                                         $customer->nama_customer => "{$customer->nama_customer} - {$customer->nomor_customer}"
                                                     ]);
                                             })
@@ -163,17 +149,11 @@ public static function form(Form $form): Form
                                                 TextInput::make('nama_customer')
                                                     ->label('Nama Customer')
                                                     ->required()
-                                                    ->unique(
-                                                        table: 'customers',
-                                                        column: 'nama_customer'
-                                                    ),
+                                                    ->unique(table: 'customers', column: 'nama_customer'),
                                                 TextInput::make('nomor_customer')
                                                     ->label('Nomor Telepon')
                                                     ->required()
-                                                    ->unique(
-                                                        table: 'customers', 
-                                                        column: 'nomor_customer'
-                                                    )
+                                                    ->unique(table: 'customers', column: 'nomor_customer')
                                                     ->prefix('+62')
                                                     ->mask('9999-9999-9999'),
                                                 TextInput::make('email_customer')
@@ -192,28 +172,22 @@ public static function form(Form $form): Form
                                                     'email_customer' => $data['email_customer'],
                                                     'alamat_customer' => $data['alamat_customer'],
                                                 ]);
-                                                
-                                                // Refresh variabel statis
-                                                self::$customerOptions = null;
-                                                
+                                                $customerOptionsCache = null; // Clear local cache
                                                 return $customer->nama_customer;
                                             })
                                             ->afterStateUpdated(function ($state, callable $set) {
-                                                // Hindari query database dengan mencari di cache
                                                 $customer = Customer::where('nama_customer', $state)
                                                     ->select('nama_customer', 'nomor_customer', 'email_customer', 'alamat_customer')
                                                     ->first();
-                                                
-                                                if($customer) {
+                                                if ($customer) {
                                                     $set('customer_phone', $customer->nomor_customer);
                                                     $set('customer_email', $customer->email_customer);
                                                     $set('alamat_customer', $customer->alamat_customer);
                                                 }
-                                            })
-                                            ->prefixIcon('heroicon-o-user'),
+                                            }),
                                     ]),
-                                    
-                                    // Baris 2: Nomor Telepon
+
+
                                     Grid::make(2)->schema([
                                         TextInput::make('customer_phone')
                                             ->label('Nomor Telepon')
@@ -224,8 +198,7 @@ public static function form(Form $form): Form
                                             ->dehydrated()
                                             ->prefixIcon('heroicon-o-phone'),
                                     ]),
-                                    
-                                    // Baris 3: Email dan Alamat
+
                                     Grid::make(2)->schema([
                                         TextInput::make('customer_email')
                                             ->label('Email Customer')
@@ -239,218 +212,213 @@ public static function form(Form $form): Form
                                             ->dehydrated()
                                             ->prefixIcon('heroicon-o-map-pin'),
                                     ]),
-                                    
-                                    // Catatan
+
                                     Textarea::make('notes_invoice')
                                         ->label('Notes')
                                         ->rows(3)
                                         ->columnSpanFull(),
 
-                                    //file upload
                                     FileUpload::make('attachment_path')
-                                    ->label('Attach File')
-                                    ->maxSize(1024000) // 1 GB
-                                    ->acceptedFileTypes([
-                                        'application/zip',
-                                        'application/x-zip-compressed',
-                                        'application/vnd.rar',
-                                        'application/x-rar-compressed',
-                                        'application/octet-stream', // fallback untuk file binary
-                                        // Tambahkan tipe lain jika perlu
-                                    ])
-                                    ->downloadable()
-                                    ->openable()
-                                    ->storeFileNamesIn('original_filename')
-                                    ->preserveFilenames() // <-- Ini kunci agar nama file tidak diubah!
-                                    ->columnSpanFull(),
-                                ])                                
+                                        ->label('Attach File')
+                                        ->maxSize(1024000) // 1 GB
+                                        ->acceptedFileTypes([
+                                            'application/zip',
+                                            'application/x-zip-compressed',
+                                            'application/vnd.rar',
+                                            'application/x-rar-compressed',
+                                            'application/octet-stream',
+                                        ])
+                                        ->downloadable()
+                                        ->openable()
+                                        ->storeFileNamesIn('original_filename')
+                                        ->preserveFilenames()
+                                        ->columnSpanFull(),
+                                ])
                                 ->columns(2)
                                 ->compact(),
-                            ])
+                        ])
                         ->columns(2),
-                    
+
                     Wizard\Step::make('Order Items')
                         ->icon('heroicon-o-shopping-cart')
                         ->schema([
                             Section::make('Product Details')
-                            ->schema([
-                                Repeater::make('invoiceProducts')
-                                    ->relationship()
-                                    ->label('')
-                                    ->columns(2)
-                                    ->grid(1)
-                                    ->defaultItems(1)
-                                    ->itemLabel(function (array $state): ?string {
-                                        if (!isset($state['product_id'])) return null;
-                                        
-                                        // Ambil dari variabel products yang sudah dikumpulkan
-                                        $product = self::$productOptions->firstWhere('id', $state['product_id']);
-                                        return $product ? $product->product_name : null;
-                                    })
-                                    ->afterStateUpdated(function ($get, $set) {
-                                        // Hindari rekursi dengan flag
-                                        static $calculating = false;
-                                        if ($calculating) return;
-                                        
-                                        $calculating = true;
-                                        $items = $get('invoiceProducts') ?: [];
-                                        $total = 0;
-                                        
-                                        foreach ($items as $item) {
-                                            $quantity = (int)($item['quantity'] ?? 0);
-                                            $price = (int)($item['price'] ?? 0);
-                                            $total += $quantity * $price;
-                                        }
-                                        
-                                        $set('grand_total', $total);
-                                        $calculating = false;
-                                    })
-                                    ->schema([
-                                        Grid::make(4)->schema([
-                                            Select::make('product_id')
-                                                ->label('Product')
-                                                ->options(function (callable $get, ?string $state, ?string $context) {
-                                                    // Get all selected product IDs from other repeater items
-                                                    $allItems = $get('../../invoiceProducts') ?: [];
-                                                    $selectedProductIds = [];
-                                                    
-                                                    // Get the uuid of the current repeater item from context
-                                                    $currentItemKey = $context;
-                                                    
-                                                    // Collect all selected product IDs except the current one
-                                                    foreach ($allItems as $itemKey => $item) {
-                                                        if ($itemKey !== $currentItemKey && isset($item['product_id']) && $item['product_id']) {
-                                                            $selectedProductIds[] = $item['product_id'];
+                                ->schema([
+                                    Repeater::make('invoiceProducts')
+                                        ->relationship()
+                                        ->label('')
+                                        ->columns(2)
+                                        ->grid(1)
+                                        ->defaultItems(1)
+                                        ->itemLabel(function (array $state): ?string {
+                                            if (!isset($state['product_id'])) return null;
+                                            static $productOptionsLocalCache = null;
+                                            if ($productOptionsLocalCache === null) {
+                                                $productOptionsLocalCache = Product::with('prices')
+                                                    ->select('id', 'product_name', 'price')
+                                                    ->orderBy('product_name')
+                                                    ->get();
+                                            }
+                                            $product = $productOptionsLocalCache->firstWhere('id', $state['product_id']);
+                                            return $product ? $product->product_name : null;
+                                        })
+                                        ->afterStateUpdated(function ($get, $set) {
+                                            static $calculating = false;
+                                            if ($calculating) return;
+
+                                            $calculating = true;
+                                            $items = $get('invoiceProducts') ?: [];
+                                            $total = 0;
+
+                                            foreach ($items as $item) {
+                                                $quantity = (int)($item['quantity'] ?? 0);
+                                                $price = (int)($item['price'] ?? 0);
+                                                $total += $quantity * $price;
+                                            }
+
+                                            $set('grand_total', $total);
+                                            $calculating = false;
+                                        })
+                                        ->schema([
+                                            Grid::make(4)->schema([
+                                                Select::make('product_id')
+                                                    ->label('Product')
+                                                    ->options(function (callable $get, ?string $state, ?string $context) {
+                                                        static $productOptionsLocalCache = null;
+                                                        if ($productOptionsLocalCache === null) {
+                                                            $productOptionsLocalCache = Product::with('prices')
+                                                                ->select('id', 'product_name', 'price')
+                                                                ->orderBy('product_name')
+                                                                ->get();
                                                         }
-                                                    }
-                                                    
-                                                    // Filter out already selected products
-                                                    $availableProducts = self::$productOptions
-                                                        ->whereNotIn('id', $selectedProductIds)
-                                                        ->pluck('product_name', 'id')
-                                                        ->toArray();
-                                                    
-                                                    // If this item already has a selection, ensure it's included
-                                                    if ($state && !in_array($state, $selectedProductIds)) {
-                                                        $currentProduct = self::$productOptions->firstWhere('id', $state);
-                                                        if ($currentProduct) {
-                                                            $availableProducts[$state] = $currentProduct->product_name;
+
+                                                        $allItems = $get('../../invoiceProducts') ?: [];
+                                                        $selectedProductIds = [];
+                                                        $currentItemKey = $context;
+
+                                                        foreach ($allItems as $itemKey => $item) {
+                                                            if ($itemKey !== $currentItemKey && isset($item['product_id']) && $item['product_id']) {
+                                                                $selectedProductIds[] = $item['product_id'];
+                                                            }
                                                         }
-                                                    }
-                                                    
-                                                    return $availableProducts;
-                                                })
+
+                                                        $availableProducts = $productOptionsLocalCache
+                                                            ->whereNotIn('id', $selectedProductIds)
+                                                            ->pluck('product_name', 'id')
+                                                            ->toArray();
+
+                                                        if ($state && !in_array($state, $selectedProductIds)) {
+                                                            $currentProduct = $productOptionsLocalCache->firstWhere('id', $state);
+                                                            if ($currentProduct) {
+                                                                $availableProducts[$state] = $currentProduct->product_name;
+                                                            }
+                                                        }
+
+                                                        return $availableProducts;
+                                                    })
                                                     ->searchable()
                                                     ->required()
                                                     ->reactive()
                                                     ->live()
                                                     ->afterStateUpdated(function ($state, $set, $get) {
                                                         if (!$state) return;
-                                                        
-                                                        // Get from cached product options
-                                                        $product = self::$productOptions->firstWhere('id', $state);
-                                                        
-                                                        if (!$product) return;
-                                                        
-                                                        // Set base price first
-                                                        $price = $product->price;
-                                                        $set('price', $price);
-                                                        
-                                                        // If quantity already exists, calculate based on that quantity
+                                                        static $productOptionsLocalCache = null;
+                                                        if ($productOptionsLocalCache === null) {
+                                                            $productOptionsLocalCache = Product::with('prices')
+                                                                ->select('id', 'product_name', 'price')
+                                                                ->orderBy('product_name')
+                                                                ->get();
+                                                        }
+
+                                                        $product = $productOptionsLocalCache->firstWhere('id', $state);
+                                                        if (!$product) {
+                                                            $product = Product::with('prices')->find($state);
+                                                            if (!$product) return;
+                                                        }
                                                         $quantity = (int) $get('quantity');
                                                         if ($quantity > 0) {
-                                                            $priceByQuantity = $product->getPriceByQuantity($quantity);
-                                                            $set('price', $priceByQuantity);
-                                                            $set('total_price', $priceByQuantity * $quantity);
+                                                            $price = $product->getPriceByQuantity($quantity);
+                                                            $set('price', $price);
+                                                            $set('total_price', $price * $quantity);
                                                         } else {
                                                             $set('total_price', 0);
                                                         }
                                                     })
                                                     ->columnSpan(1),
 
-                                            TextInput::make('quantity')
-                                                ->label('Quantity')
-                                                ->numeric()
-                                                ->required()
-                                                ->default(1)
-                                                ->minValue(1)
-                                                ->live()
-                                                ->afterStateUpdated(function ($state, $set, $get) {
-                                                    $quantity = (int) $state;
-                                                    $productId = $get('product_id');
-                                                    
-                                                    if (!$productId || $quantity <= 0) {
-                                                        $set('total_price', 0);
-                                                        return;
-                                                    }
-                                                    
-                                                    // Use cached products for better performance
-                                                    $product = self::$productOptions->firstWhere('id', $productId);
-                                                    
-                                                    if (!$product) {
-                                                        // Fallback to database query if not found in cache
-                                                        $product = Product::with('prices')->find($productId);
-                                                        
-                                                        if (!$product) {
-                                                            $set('total_price', 0);
-                                                            return;
+                                                TextInput::make('quantity')
+                                                    ->label('Quantity')
+                                                    ->numeric()
+                                                    ->required()
+                                                    ->default(1)
+                                                    ->minValue(1)
+                                                    ->live()
+                                                    ->afterStateUpdated(function ($state, $set, $get) {
+                                                        $quantity = (int) $state;
+                                                        $productId = $get('product_id');
+                                                        if (!$productId || $quantity <= 0) return;
+                                                        static $productOptionsLocalCache = null;
+                                                        if ($productOptionsLocalCache === null) {
+                                                            $productOptionsLocalCache = Product::with('prices')
+                                                                ->select('id', 'product_name', 'price')
+                                                                ->orderBy('product_name')
+                                                                ->get();
                                                         }
-                                                    }
-                                                    
-                                                    // Use the getPriceByQuantity method from your model
-                                                    $price = $product->getPriceByQuantity($quantity);
-                                                    
-                                                    // Set updated price and calculate total
-                                                    $set('price', $price);
-                                                    $set('total_price', $quantity * $price);
-                                                })
-                                                ->columnSpan(1),
+                                                        $product = $productOptionsLocalCache->firstWhere('id', $productId);
+                                                        if (!$product) {
+                                                            $product = Product::with('prices')->find($productId);
+                                                            if (!$product) return;
+                                                        }
+                                                        $price = $product->getPriceByQuantity($quantity);
+                                                        $set('price', $price);
+                                                        $set('total_price', $price * $quantity);
+                                                    })
+                                                    ->columnSpan(1),
 
-                                            TextInput::make('price')
-                                                ->label('Harga')
-                                                ->disabled()
-                                                ->prefix('Rp ')
-                                                ->dehydrated(true)
-                                                ->formatStateUsing(fn ($state) => number_format($state, 0, ',', '.'))
-                                                ->reactive()
-                                                ->columnSpan(1),
-                                            TextInput::make('total_price')
-                                                ->label('Total')
-                                                ->disabled()
-                                                ->prefix('Rp ')
-                                                ->dehydrated(true)
-                                                ->formatStateUsing(fn ($state) => number_format($state, 0, ',', '.'))
-                                                ->reactive()
-                                                ->columnSpan(1),
+                                                TextInput::make('price')
+                                                    ->label('Harga')
+                                                    ->numeric()
+                                                    ->disabled()
+                                                    ->dehydrated()
+                                                    ->prefix('Rp ')
+                                                    ->formatStateUsing(fn($state) => number_format((int) $state, 0, ',', '.')),
+
+                                                TextInput::make('total_price')
+                                                    ->label('Total')
+                                                    ->numeric()
+                                                    ->disabled()
+                                                    ->dehydrated()
+                                                    ->prefix('Rp ')
+                                                    ->formatStateUsing(fn($state) => number_format((int) $state, 0, ',', '.')),
+                                            ]),
                                         ]),
-                                    ]),
-                                
-                                // Add Grand Total Display at the bottom
-                                Section::make('Order Summary')
-                                    ->schema([
-                                        TextInput::make('grand_total')
-                                            ->label('Grand Total')
-                                            ->disabled()
-                                            ->prefix('Rp ')
-                                            ->formatStateUsing(function ($state) {
-                                                return number_format((float)$state, 0, ',', '.');
-                                            })
-                                            ->dehydrated()
-                                            ->columnSpan(1)
-                                            ->required()
-                                            ->numeric()
-                                            ->default(0),
-                                    ])
-                                    ->columnSpanFull()
-                                    ->compact(),
-                            ])
-                            ->compact()
+
+                                    Section::make('Order Summary')
+                                        ->schema([
+                                            TextInput::make('grand_total')
+                                                ->label('Grand Total')
+                                                ->disabled()
+                                                ->prefix('Rp ')
+                                                ->formatStateUsing(function ($state) {
+                                                    return number_format((float)$state, 0, ',', '.');
+                                                })
+                                                ->dehydrated()
+                                                ->columnSpan(1)
+                                                ->required()
+                                                ->numeric()
+                                                ->default(0),
+                                        ])
+                                        ->columnSpanFull()
+                                        ->compact(),
+                                ])
+                                ->compact()
+                                ->columns(1)
                         ])
-                        ->columns(1), 
-                    ])
+                        ->columns(1),
+                ])
                     ->skippable(false)
                     ->columnSpanFull()
-                ]);
+            ]);
     }
 
     public static function table(Table $table): Table
@@ -461,70 +429,19 @@ public static function form(Form $form): Form
                     ->label('Invoice Number')
                     ->searchable()
                     ->sortable(),
-    
-                TextColumn::make('status')
-                    ->label('Payment Status')
-                    ->badge()
-                    ->icon(fn (string $state): string => match ($state) {
-                        'paid' => 'heroicon-s-check-circle',
-                        'unpaid' => 'heroicon-s-exclamation-circle',
-                        default => '',
-                    })
-                    ->iconPosition(IconPosition::After)
-                    ->color(fn (string $state): string => match ($state) {
-                        'paid' => 'success',
-                        'unpaid' => 'danger',
-                        default => 'gray',
-                    })
-                    ->formatStateUsing(fn (string $state): string => match ($state) {
-                        'paid' => 'Paid',
-                        'unpaid' => 'Unpaid',
-                        default => 'Unknown',
-                    })
-                    ->sortable()
-                    ->searchable()
-                    ->toggleable()
-                    ->tooltip(fn (string $state): string => match ($state) {
-                        'paid' => 'Pembayaran telah diterima',
-                        'unpaid' => 'Menunggu pembayaran',
-                        default => '',
-                    }),
-                
-                TextColumn::make('payment_method')
-                    ->label('Payment Method')
-                    ->badge()
-                    ->color(fn (string $state): string => match ($state) {
-                        'transfer' => 'info',
-                        'cash' => 'warning',
-                        default => 'gray',
-                    })
-                    ->formatStateUsing(fn (string $state): string => match ($state) {
-                        'transfer' => 'Transfer',
-                        'cash' => 'Cash',
-                        default => 'N/A',
-                    })
-                    ->sortable()
-                    ->searchable()
-                    ->toggleable()
-                    ->tooltip(fn (string $state): string => match ($state) {
-                        'transfer' => 'Pembayaran via Transfer',
-                        'cash' => 'Pembayaran via Cash',
-                        default => 'Metode pembayaran tidak diketahui',
-                    }),
-    
+
                 TextColumn::make('name_customer')
                     ->label('Customer Name')
                     ->searchable(),
-                
+
                 TextColumn::make('grand_total')
                     ->label('Total Amount')
                     ->money('IDR')
                     ->sortable(),
-                
-                // Gunakan accessor untuk menampilkan produk
+
                 TextColumn::make('productSummary')
                     ->label('Products')
-                    ->tooltip(fn ($record) => $record->productFullList)
+                    ->tooltip(fn($record) => $record->productFullList)
             ])
             ->filters([
                 Tables\Filters\SelectFilter::make('status')
@@ -532,7 +449,7 @@ public static function form(Form $form): Form
                         'paid' => 'Paid',
                         'unpaid' => 'Unpaid',
                     ]),
-                    
+
                 Tables\Filters\SelectFilter::make('month')
                     ->options([
                         '1' => 'January',
@@ -557,26 +474,15 @@ public static function form(Form $form): Form
             ->actions([
                 Tables\Actions\EditAction::make(),
                 Tables\Actions\DeleteAction::make(),
-                // \Filament\Tables\Actions\Action::make('manage_payment')
-                //     ->label('Manage Payment')
-                //     ->icon('heroicon-o-credit-card')
-                //     ->url(fn ($record) => PaymentResource::getUrl('edit', ['record' => $record]))
-                //     ->color('success'),
-                // \Filament\Tables\Actions\Action::make('print')
-                //     ->label('Print Invoice')
-                //     ->icon('heroicon-o-printer')
-                //     ->url(fn ($record) => route('invoices.print', $record))
-                //     ->openUrlInNewTab()
             ])
             ->bulkActions([
                 Tables\Actions\DeleteBulkAction::make(),
             ])
             ->defaultSort('created_at', 'desc')
-            // Query Optimasi - Eager load relasi sekaligus
             ->modifyQueryUsing(function (Builder $query) {
-                return $query->with(['products' => function($q) {
+                return $query->with(['products' => function ($q) {
                     $q->select('products.id', 'products.product_name', 'invoice_product.quantity', 'invoice_product.invoice_id');
-                }])->select('id', 'invoice_number', 'status', 'payment_method', 'name_customer', 'grand_total', 'created_at');
+                }])->select('id', 'invoice_number', 'name_customer', 'grand_total', 'created_at');
             })
             ->recordAction(null)
             ->deferLoading()
@@ -588,17 +494,16 @@ public static function form(Form $form): Form
         return [];
     }
 
-    // app/Filament/Resources/InvoiceResource.php
     public static function getPages(): array
     {
         return [
             'index' => Pages\ListInvoices::route('/'),
             'create' => Pages\CreateInvoice::route('/create'),
-            'view' => Pages\ViewInvoice::route('/{record}'), // Tambahkan ini
+            'view' => Pages\ViewInvoice::route('/{record}'),
             'edit' => Pages\EditInvoice::route('/{record}/edit'),
         ];
     }
-    
+
     public static function getNavigationIcon(): string
     {
         return 'heroicon-o-document-text';
@@ -611,35 +516,33 @@ public static function form(Form $form): Form
 
     protected function mutateFormDataBeforeCreate(array $data): array
     {
-        // Pastikan grand_total terhitung sebelum menyimpan data
         $invoiceProducts = $data['invoiceProducts'] ?? [];
         $grandTotal = 0;
-        
+
         foreach ($invoiceProducts as $item) {
             if (isset($item['total_price'])) {
                 $grandTotal += (int) $item['total_price'];
             }
         }
-        
+
         $data['grand_total'] = $grandTotal;
-        
+
         return $data;
     }
 
     protected function mutateFormDataBeforeSave(array $data): array
     {
-        // Pastikan grand_total terhitung sebelum update data
         $invoiceProducts = $data['invoiceProducts'] ?? [];
         $grandTotal = 0;
-        
+
         foreach ($invoiceProducts as $item) {
             if (isset($item['total_price'])) {
                 $grandTotal += (int) $item['total_price'];
             }
         }
-        
+
         $data['grand_total'] = $grandTotal;
-        
+
         return $data;
     }
 }
