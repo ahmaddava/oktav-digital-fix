@@ -103,30 +103,44 @@ class ProductionResource extends Resource
                                 if (!$invoiceId) {
                                     return 'Pilih invoice untuk melihat produk yang akan diproduksi';
                                 }
-                                $invoice = Invoice::with('products')->find($invoiceId);
-                                if (!$invoice || $invoice->products->isEmpty()) {
+
+                                // Gunakan relasi yang benar: 'invoiceProducts.product'
+                                $invoice = Invoice::with('invoiceProducts.product')->find($invoiceId);
+
+                                if (!$invoice || $invoice->invoiceProducts->isEmpty()) {
                                     return 'Tidak ada produk ditemukan untuk invoice ini';
                                 }
+
                                 $productsList = '<div class="space-y-2">';
-                                foreach ($invoice->products as $product) {
+
+                                // Loop melalui 'invoiceProducts', bukan 'products'
+                                foreach ($invoice->invoiceProducts as $item) {
+                                    // Dapatkan nama dengan logika fallback
+                                    $name = $item->product->product_name ?? $item->product_name;
+
                                     $productsList .= '<div class="flex items-center justify-between p-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">';
+
                                     // Product name
                                     $productsList .= '<div class="flex-1">';
-                                    $productsList .= '<span class="font-medium text-gray-800 dark:text-gray-200">' . $product->product_name . '</span>';
+                                    $productsList .= '<span class="font-medium text-gray-800 dark:text-gray-200">' . $name . '</span>';
                                     $productsList .= '</div>';
-                                    // Quantity
+
+                                    // Quantity (akses langsung dari $item, bukan pivot)
                                     $productsList .= '<div class="ml-4 flex items-center justify-center">';
                                     $productsList .= '<span class="bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded-full px-3 py-1 text-sm font-medium">';
-                                    $productsList .= $product->pivot->quantity . ' unit';
+                                    $productsList .= $item->quantity . ' unit';
                                     $productsList .= '</span>';
                                     $productsList .= '</div>';
+
                                     $productsList .= '</div>';
                                 }
                                 $productsList .= '</div>';
+
                                 return new HtmlString($productsList);
                             }),
                     ])
                     ->columns(1),
+
 
                 // Bagian Detail Produksi
                 Forms\Components\Section::make('Detail Produksi')

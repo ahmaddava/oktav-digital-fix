@@ -11,30 +11,25 @@ class InvoiceController extends Controller
 {
     public function print(Invoice $invoice)
     {
-        $invoice->load('products');
-        
-        // Hitung total
-        $subtotal = $invoice->products->sum(function($product) {
-            return $product->pivot->quantity * $product->price;
-        });
+        // ✅ GANTI INI: Muat relasi 'invoiceProducts' yang berisi SEMUA item
+        $invoice->load('invoiceProducts');
+
+        // ✅ GANTI INI: Hitung subtotal dengan menjumlahkan kolom 'total_price' dari semua item
+        $subtotal = $invoice->invoiceProducts->sum('total_price');
+
+        // --- Bagian ini sudah benar, tidak perlu diubah ---
 
         // Konversi ke terbilang
         $numberToWords = new NumberToWords();
-
-        // Pilih bahasa (Indonesian)
         $numberTransformer = $numberToWords->getNumberTransformer('id');
-
-        // Konversi angka ke kata-kata
         $terbilang = $numberTransformer->toWords($subtotal);
-
-        // Kapitalisasi huruf pertama dan tambahkan "Rupiah"
         $terbilang = ucwords($terbilang) . ' Rupiah';
 
+        // Kirim data yang benar ke view
         return view('invoice-pdf', [
             'invoice' => $invoice,
             'subtotal' => $subtotal,
             'terbilang' => $terbilang
         ]);
-    }  //
-    
+    }
 }

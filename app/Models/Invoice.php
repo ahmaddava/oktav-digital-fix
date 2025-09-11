@@ -10,15 +10,15 @@ use Illuminate\Support\Facades\Storage;
 class Invoice extends Model
 {
     protected $fillable = [
-        'sequence_number', 
-        'status', 
+        'sequence_number',
+        'status',
         'approval_status',
         'approved_by',
         'approved_at',
         'approval_notes',
         'name_customer',
-        'customer_phone', 
-        'notes_invoice', 
+        'customer_phone',
+        'notes_invoice',
         'invoice_number',
         'dp',
         'payment_method',
@@ -40,7 +40,7 @@ class Invoice extends Model
         'dp' => 'integer',
         'grand_total' => 'integer',
     ];
-    
+
     // Variable untuk menyimpan produk yang telah di-load
     private $loadedProducts = null;
 
@@ -53,7 +53,7 @@ class Invoice extends Model
             ->withPivot('quantity', 'price')
             ->withTimestamps();
     }
-    
+
     /**
      * Get the invoice product items
      */
@@ -73,10 +73,10 @@ class Invoice extends Model
     /**
      * Boot the model
      */
-    protected static function boot() 
+    protected static function boot()
     {
         parent::boot();
-    
+
         static::creating(function ($model) {
             // Generate sequence_number
             $latest = Invoice::select('sequence_number')
@@ -91,12 +91,12 @@ class Invoice extends Model
      */
     public function scopeAvailableForProduction($query)
     {
-        return $query->whereHas('products', function($query) {
+        return $query->whereHas('products', function ($query) {
             $query->where('type', Product::TYPE_DIGITAL_PRINT);
         })
-        ->whereDoesntHave('production', function($query) {
-            $query->where('status', 'completed');
-        });
+            ->whereDoesntHave('production', function ($query) {
+                $query->where('status', 'completed');
+            });
     }
 
     /**
@@ -114,15 +114,27 @@ class Invoice extends Model
      */
     public function getProductSummaryAttribute()
     {
-        $products = $this->products;
+        // Gunakan relasi 'invoiceProducts' untuk mengambil SEMUA item
+        $items = $this->invoiceProducts;
+
+        if ($items->isEmpty()) {
+            return '-';
+        }
+
         $limit = 2;
-        
-        $displayProducts = $products->take($limit)->map(function ($product) {
-            return $product->product_name . ' (Qty: ' . $product->pivot->quantity . ')';
+
+        // Ubah logika untuk mengambil nama yang benar
+        $displayProducts = $items->take($limit)->map(function ($item) {
+            // Coba ambil nama dari relasi 'product'. Jika tidak ada (untuk produk kustom),
+            // pakai 'product_name' yang tersimpan di tabel pivot.
+            $name = $item->product->product_name ?? $item->product_name;
+
+            // Gunakan $item->quantity, bukan $item->pivot->quantity
+            return $name . ' (Qty: ' . $item->quantity . ')';
         })->implode(', ');
 
-        if ($products->count() > $limit) {
-            $remaining = $products->count() - $limit;
+        if ($items->count() > $limit) {
+            $remaining = $items->count() - $limit;
             $displayProducts .= ' +' . $remaining . ' more';
         }
 
@@ -130,12 +142,15 @@ class Invoice extends Model
     }
 
     /**
+     * ✅ PERBAIKI INI JUGA (untuk tooltip)
      * Get full product list for tooltips (accessor)
      */
     public function getProductFullListAttribute()
     {
-        return $this->products->map(function ($product) {
-            return $product->product_name . ' (Qty: ' . $product->pivot->quantity . ')';
+        // Gunakan logika yang sama dengan di atas
+        return $this->invoiceProducts->map(function ($item) {
+            $name = $item->product->product_name ?? $item->product_name;
+            return $name . ' (Qty: ' . $item->quantity . ')';
         })->implode("\n");
     }
 
@@ -185,11 +200,11 @@ class Invoice extends Model
                 $invoice->grand_total = $invoice->products()->sum('total_price');
             };
 
-            
+
             static::updated(function ($invoice) {
                 $newStatus = $invoice->approval_status;
                 $oldStatus = $invoice->getOriginal('approval_status');
-                
+
                 if ($newStatus === 'approved') {
                     // Buat record production jika belum ada
                     $invoice->production()->firstOrCreate(
@@ -202,8 +217,7 @@ class Invoice extends Model
                             'notes_invoice' => $invoice->notes_invoice,
                         ]
                     );
-                } 
-                elseif (($newStatus === 'pending' || $newStatus === 'rejected') && $oldStatus === 'approved') {
+                } elseif (($newStatus === 'pending' || $newStatus === 'rejected') && $oldStatus === 'approved') {
                     // Hapus record production jika sebelumnya approved
                     $invoice->production()->delete();
                 }

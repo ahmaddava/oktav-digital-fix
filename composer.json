@@ -9,6 +9,7 @@
         "php": "^8.2",
         "awcodes/filament-table-repeater": "*",
         "bezhansalleh/filament-shield": "*",
+        "doctrine/dbal": "^4.2",
         "flowframe/laravel-trend": "^0.4.0",
         "kwn/number-to-words": "^2.11",
         "laravel/framework": "^12.0",

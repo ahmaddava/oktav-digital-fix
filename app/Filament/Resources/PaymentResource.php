@@ -24,7 +24,7 @@ use Filament\Forms\Set;
 class PaymentResource extends Resource implements HasShieldPermissions
 {
     protected static ?string $navigationGroup = 'Management';
-    
+
     protected static ?string $model = Invoice::class;
 
     protected static ?string $navigationIcon = 'heroicon-o-credit-card';
@@ -38,7 +38,12 @@ class PaymentResource extends Resource implements HasShieldPermissions
     public static function getPermissionPrefixes(): array
     {
         return [
-            'view', 'view_any', 'create', 'update', 'delete', 'delete_any',
+            'view',
+            'view_any',
+            'create',
+            'update',
+            'delete',
+            'delete_any',
         ];
     }
 
@@ -53,25 +58,25 @@ class PaymentResource extends Resource implements HasShieldPermissions
                                 ->label('Invoice Number')
                                 ->disabled()
                                 ->dehydrated(false),
-                            
+
                             TextInput::make('name_customer')
                                 ->label('Customer Name')
                                 ->disabled()
                                 ->dehydrated(false),
                         ]),
-                        
+
                         Grid::make(2)->schema([
                             TextInput::make('customer_phone')
                                 ->label('Customer Phone')
                                 ->disabled()
                                 ->dehydrated(false),
-                            
+
                             TextInput::make('customer_email')
                                 ->label('Customer Email')
                                 ->disabled()
                                 ->dehydrated(false),
                         ]),
-                        
+
                         TextInput::make('grand_total')
                             ->label('Total Amount')
                             ->disabled()
@@ -131,83 +136,83 @@ class PaymentResource extends Resource implements HasShieldPermissions
                         Grid::make(2)->schema([
                             // Down Payment (DP)
                             TextInput::make('dp')
-                            ->label('Down Payment (DP)')
-                            ->numeric()
-                            ->prefix('Rp')
-                            ->placeholder('Masukkan jumlah DP')
-                            ->hidden(fn (Get $get) => $get('status') !== 'unpaid')
-                            ->formatStateUsing(function ($state) {
-                                return $state ? number_format((float)$state, 0, ',', '.') : '';
-                            })
-                            ->dehydrateStateUsing(function ($state, $record) {
-                                $cleanValue = $state ? (int) str_replace(['.', ','], '', $state) : 0;
-                                $grandTotal = $record?->grand_total ?? 0;
-                                return min($cleanValue, $grandTotal);
-                            })
-                            ->rules([
-                                'numeric',
-                                'min:0',
-                                function ($record) {
-                                    return function ($attribute, $value, $fail) use ($record) {
-                                        $cleanValue = $value ? (int) str_replace(['.', ','], '', $value) : 0;
-                                        $grandTotal = $record->grand_total;
-                                        
-                                        if ($cleanValue > $grandTotal) {
-                                            $fail('DP tidak boleh melebihi total amount (Rp ' . number_format($grandTotal, 0, ',', '.') . ')');
-                                        }
-                                    };
-                                }
-                            ])
-                            ->maxValue(function ($record) {
-                                return $record?->grand_total;
-                            })
-                            ->live(onBlur: true) // Update realtime saat keluar dari field
-                            ->afterStateUpdated(function ($state, Set $set, $record) {
-                                // Bersihkan nilai DP
-                                $dpValue = $state ? (int) str_replace(['.', ','], '', $state) : 0;
-                                $grandTotal = $record?->grand_total ?? 0;
-                                
-                                // Jika DP sama dengan grand total, ubah status menjadi paid
-                                if ($dpValue === $grandTotal) {
-                                    $set('status', 'paid');
-                                    $set('paid_at', now());
-                                }
-                            })
-                            ->helperText(function (Get $get, $record, $state) {
-                                if ($get('status') !== 'unpaid') {
-                                    return null;
-                                }
-                        
-                                $grandTotal = $record?->grand_total ?? 0;
-                                $dpValue = $state ? (int) str_replace(['.', ','], '', $state) : 0;
-                                $remaining = $grandTotal - $dpValue;
-                                
-                                if ($dpValue > $grandTotal) {
-                                    return 'DP melebihi total amount! Maksimal: Rp ' . number_format($grandTotal, 0, ',', '.');
-                                }
-                                
-                                // Tambahkan pesan jika pembayaran lunas
-                                if ($dpValue === $grandTotal) {
-                                    return 'Pembayaran lunas! Status akan diubah otomatis menjadi Paid';
-                                }
-                                
-                                return 'Sisa pembayaran: Rp ' . number_format($remaining, 0, ',', '.');
-                            })
-                            ->hintColor(function (Get $get, $record, $state) {
-                                if ($get('status') !== 'unpaid') {
-                                    return null;
-                                }
-                        
-                                $grandTotal = $record?->grand_total ?? 0;
-                                $dpValue = $state ? (int) str_replace(['.', ','], '', $state) : 0;
-                                
-                                if ($dpValue === $grandTotal) {
-                                    return 'success'; // Warna hijau saat lunas
-                                }
-                                
-                                return $dpValue > $grandTotal ? 'danger' : null;
-                            }),
-                            
+                                ->label('Down Payment (DP)')
+                                ->numeric()
+                                ->prefix('Rp')
+                                ->placeholder('Masukkan jumlah DP')
+                                ->hidden(fn(Get $get) => $get('status') !== 'unpaid')
+                                ->formatStateUsing(function ($state) {
+                                    return $state ? number_format((float)$state, 0, ',', '.') : '';
+                                })
+                                ->dehydrateStateUsing(function ($state, $record) {
+                                    $cleanValue = $state ? (int) str_replace(['.', ','], '', $state) : 0;
+                                    $grandTotal = $record?->grand_total ?? 0;
+                                    return min($cleanValue, $grandTotal);
+                                })
+                                ->rules([
+                                    'numeric',
+                                    'min:0',
+                                    function ($record) {
+                                        return function ($attribute, $value, $fail) use ($record) {
+                                            $cleanValue = $value ? (int) str_replace(['.', ','], '', $value) : 0;
+                                            $grandTotal = $record->grand_total;
+
+                                            if ($cleanValue > $grandTotal) {
+                                                $fail('DP tidak boleh melebihi total amount (Rp ' . number_format($grandTotal, 0, ',', '.') . ')');
+                                            }
+                                        };
+                                    }
+                                ])
+                                ->maxValue(function ($record) {
+                                    return $record?->grand_total;
+                                })
+                                ->live(onBlur: true) // Update realtime saat keluar dari field
+                                ->afterStateUpdated(function ($state, Set $set, $record) {
+                                    // Bersihkan nilai DP
+                                    $dpValue = $state ? (int) str_replace(['.', ','], '', $state) : 0;
+                                    $grandTotal = $record?->grand_total ?? 0;
+
+                                    // Jika DP sama dengan grand total, ubah status menjadi paid
+                                    if ($dpValue === $grandTotal) {
+                                        $set('status', 'paid');
+                                        $set('paid_at', now());
+                                    }
+                                })
+                                ->helperText(function (Get $get, $record, $state) {
+                                    if ($get('status') !== 'unpaid') {
+                                        return null;
+                                    }
+
+                                    $grandTotal = $record?->grand_total ?? 0;
+                                    $dpValue = $state ? (int) str_replace(['.', ','], '', $state) : 0;
+                                    $remaining = $grandTotal - $dpValue;
+
+                                    if ($dpValue > $grandTotal) {
+                                        return 'DP melebihi total amount! Maksimal: Rp ' . number_format($grandTotal, 0, ',', '.');
+                                    }
+
+                                    // Tambahkan pesan jika pembayaran lunas
+                                    if ($dpValue === $grandTotal) {
+                                        return 'Pembayaran lunas! Status akan diubah otomatis menjadi Paid';
+                                    }
+
+                                    return 'Sisa pembayaran: Rp ' . number_format($remaining, 0, ',', '.');
+                                })
+                                ->hintColor(function (Get $get, $record, $state) {
+                                    if ($get('status') !== 'unpaid') {
+                                        return null;
+                                    }
+
+                                    $grandTotal = $record?->grand_total ?? 0;
+                                    $dpValue = $state ? (int) str_replace(['.', ','], '', $state) : 0;
+
+                                    if ($dpValue === $grandTotal) {
+                                        return 'success'; // Warna hijau saat lunas
+                                    }
+
+                                    return $dpValue > $grandTotal ? 'danger' : null;
+                                }),
+
                             // Remaining Amount (calculated)
                             TextInput::make('remaining_amount')
                                 ->disabled()
@@ -216,26 +221,26 @@ class PaymentResource extends Resource implements HasShieldPermissions
                                     $remaining = $record->grand_total - ($record->dp ?? 0);
                                     return 'Rp ' . number_format($remaining, 0, ',', '.');
                                 })
-                                ->visible(fn ($record) => $record->status === 'unpaid' && $record->dp > 0),
+                                ->visible(fn($record) => $record->status === 'unpaid' && $record->dp > 0),
                         ]),
 
-                    Select::make('approval_status')
-                        ->label('Status Persetujuan')
-                        ->options([
-                            'pending' => 'Menunggu',
-                            'approved' => 'Disetujui',
-                            'rejected' => 'Ditolak',
-                        ])
-                        ->required()
-                        ->disabled(fn ($record) => $record->approval_status === 'approved' && $record->status === 'paid')
-                        ->helperText(function ($record) {
-                            if ($record->approval_status === 'approved' && $record->status === 'paid') {
-                                return 'Invoice sudah dibayar dan disetujui, tidak dapat diubah';
-                            } elseif ($record->approval_status === 'approved') {
-                                return 'Status disetujui, bisa diubah ke rejected jika perlu';
-                            }
-                            return 'Pilih status persetujuan';
-                        })
+                        Select::make('approval_status')
+                            ->label('Status Persetujuan')
+                            ->options([
+                                'pending' => 'Menunggu',
+                                'approved' => 'Disetujui',
+                                'rejected' => 'Ditolak',
+                            ])
+                            ->required()
+                            ->disabled(fn($record) => $record->approval_status === 'approved' && $record->status === 'paid')
+                            ->helperText(function ($record) {
+                                if ($record->approval_status === 'approved' && $record->status === 'paid') {
+                                    return 'Invoice sudah dibayar dan disetujui, tidak dapat diubah';
+                                } elseif ($record->approval_status === 'approved') {
+                                    return 'Status disetujui, bisa diubah ke rejected jika perlu';
+                                }
+                                return 'Pilih status persetujuan';
+                            })
                     ])
                     ->columns(2)
                     ->compact(),
@@ -264,18 +269,18 @@ class PaymentResource extends Resource implements HasShieldPermissions
                 TextColumn::make('status')
                     ->label('Payment Status')
                     ->badge()
-                    ->icon(fn (string $state): string => match ($state) {
+                    ->icon(fn(string $state): string => match ($state) {
                         'paid' => 'heroicon-s-check-circle',
                         'unpaid' => 'heroicon-s-exclamation-circle',
                         default => '',
                     })
                     ->iconPosition(IconPosition::After)
-                    ->color(fn (string $state): string => match ($state) {
+                    ->color(fn(string $state): string => match ($state) {
                         'paid' => 'success',
                         'unpaid' => 'danger',
                         default => 'gray',
                     })
-                    ->formatStateUsing(fn (string $state): string => match ($state) {
+                    ->formatStateUsing(fn(string $state): string => match ($state) {
                         'paid' => 'Paid',
                         'unpaid' => 'Unpaid',
                         default => 'Unknown',
@@ -286,20 +291,20 @@ class PaymentResource extends Resource implements HasShieldPermissions
                 TextColumn::make('approval_status')
                     ->label('Approval Status')
                     ->badge()
-                    ->icon(fn (string $state): string => match ($state) {
+                    ->icon(fn(string $state): string => match ($state) {
                         'approved' => 'heroicon-s-check-badge',
                         'pending' => 'heroicon-s-clock',
                         'rejected' => 'heroicon-s-x-circle',
                         default => 'heroicon-s-question-mark-circle',
                     })
                     ->iconPosition(IconPosition::After)
-                    ->color(fn (string $state): string => match ($state) {
+                    ->color(fn(string $state): string => match ($state) {
                         'approved' => 'success',
                         'pending' => 'warning',
                         'rejected' => 'danger',
                         default => 'gray',
                     })
-                    ->formatStateUsing(fn (string $state): string => match ($state) {
+                    ->formatStateUsing(fn(string $state): string => match ($state) {
                         'approved' => 'Approved',
                         'pending' => 'Pending',
                         'rejected' => 'Rejected',
@@ -311,12 +316,12 @@ class PaymentResource extends Resource implements HasShieldPermissions
                 TextColumn::make('payment_method')
                     ->label('Payment Method')
                     ->badge()
-                    ->color(fn (string $state): string => match ($state) {
+                    ->color(fn(string $state): string => match ($state) {
                         'transfer' => 'info',
                         'cash' => 'warning',
                         default => 'gray',
                     })
-                    ->formatStateUsing(fn (string $state): string => match ($state) {
+                    ->formatStateUsing(fn(string $state): string => match ($state) {
                         'transfer' => 'Transfer',
                         'cash' => 'Cash',
                         default => 'N/A',
@@ -385,13 +390,13 @@ class PaymentResource extends Resource implements HasShieldPermissions
 
                 Tables\Filters\Filter::make('has_dp')
                     ->label('Has Down Payment')
-                    ->query(fn (Builder $query): Builder => $query->where('dp', '>', 0)),
+                    ->query(fn(Builder $query): Builder => $query->where('dp', '>', 0)),
 
                 Tables\Filters\SelectFilter::make('month')
                     ->label('Month')
                     ->options([
                         '1' => 'January',
-                        '2' => 'February', 
+                        '2' => 'February',
                         '3' => 'March',
                         '4' => 'April',
                         '5' => 'May',
@@ -412,7 +417,7 @@ class PaymentResource extends Resource implements HasShieldPermissions
             ->actions([
                 Tables\Actions\EditAction::make()
                     ->label('Update Payment'),
-                    
+
                 Tables\Actions\ViewAction::make()
                     ->label('View Details'),
 
@@ -455,7 +460,7 @@ class PaymentResource extends Resource implements HasShieldPermissions
                 Tables\Actions\Action::make('print_invoice')
                     ->label('Print Invoice')
                     ->icon('heroicon-o-printer')
-                    ->url(fn ($record) => route('invoices.print', $record))
+                    ->url(fn($record) => route('invoices.print', $record))
                     ->openUrlInNewTab()
                     ->color('gray'),
             ])
