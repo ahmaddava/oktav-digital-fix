@@ -163,29 +163,18 @@
             <div>
                 <table class="w-full text-[13px] leading-tight mt-1">
                     <tr>
-                        <!-- Kolom Kiri -->
+                        <!-- Row 1 Left: Terbilang -->
                         <td class="w-2/5" style="vertical-align: top;">
-                            <div class="flex flex-col justify-start">
-                                <p class="italic mb-1">Terbilang: {{ $terbilang }}</p>
-                                <div class="flex flex-col mt-2">
-                                    <p class="mb-8">Pelanggan,</p>
-                                    <p class="font-bold">{{ $invoice->name_customer }}</p>
-                                </div>
-                            </div>
+                            <p class="italic mb-1">Terbilang: {{ $terbilang }}</p>
                         </td>
 
-                        <!-- Kolom Tengah -->
-                        <td class="w-1/5 text-center" style="vertical-align: top;">
-                            <div class="flex flex-col justify-start mt-4">
-                                <p class="mb-8">Hormat Kami,</p>
-                                <p class="font-bold">Oktav Digital</p>
-                            </div>
-                        </td>
+                        <!-- Row 1 Middle: Empty -->
+                        <td class="w-[0.5px] whitespace-nowrap" style="vertical-align: top;"></td>
 
-                        <!-- Kolom Kanan -->
-                        <td class="w-2/5" style="vertical-align: top;">
-                            {{-- Only show totals on the last page --}}
-                            @if ($loop->last)
+                        <!-- Row 1+2 Right: Totals (Rowspan 2) -->
+                        <td class="w-2/5" style="vertical-align: top;" rowspan="2">
+                            {{-- Always render totals to maintain height/layout, but hide them on non-last pages --}}
+                            <div class="{{ $loop->last ? '' : 'invisible' }}">
                                 <table class="w-full text-[10px]"> {{-- Specific smaller font for totals --}}
                                     <tr>
                                         <td class="text-right py-0 text-gray-600">Subtotal</td>
@@ -234,10 +223,24 @@
                                 <div class="flex justify-end items-end pt-1">
                                     <p class="text-green-600 font-bold text-right">{{ strtoupper($invoice->status) }}</p>
                                 </div>
-                            @else
-                                {{-- Spacer for non-last pages to keep layout similar? Or just empty --}}
-                                <div class="h-20"></div> {{-- Placeholder --}}
-                            @endif
+                            </div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <!-- Row 2 Left: Signature Pelanggan -->
+                        <td class="w-2/5" style="vertical-align: top;">
+                            <div class="flex flex-col mt-2">
+                                <p class="mb-12">Pelanggan,</p>
+                                <p class="font-bold">{{ $invoice->name_customer }}</p>
+                            </div>
+                        </td>
+
+                        <!-- Row 2 Middle: Signature Oktav -->
+                        <td class="w-[1px] whitespace-nowrap text-center" style="vertical-align: top;">
+                            <div class="flex flex-col mt-2">
+                                <p class="mb-12">Hormat Kami,</p>
+                                <p class="font-bold">Oktav Digital</p>
+                            </div>
                         </td>
                     </tr>
                 </table>
@@ -245,14 +248,14 @@
             </div>
             <div class="border-t border-gray-200 mt-1">
                 <!-- Judul "Perhatian" -->
-                <p class="text-[12px] font-semibold text-gray-800 leading-tight">Perhatian</p>
+                <p class="text-[10px] font-semibold text-gray-800 leading-tight">Perhatian</p> {{-- Reduced to 10px --}}
 
                 <!-- Daftar Poin -->
-                <ul class="list-disc list-inside space-y-0 text-[12px] text-gray-600 compact-list leading-tight">
+                <ul class="list-disc list-inside space-y-0 text-[10px] text-gray-600 compact-list leading-tight"> {{-- Vertical list & 10px --}}
                     <li class="pl-1">Cek File/Settingan Sebelum Cetak</li>
                     <li class="pl-1">Kesalahan Setelan Bukan Tanggung Jawab Kami</li>
-                    <li class="pl-1">Transaksi > Rp 500rb Wajib Lunas</li>
-                    <li class="pl-1">Transaksi < Rp 500rb Boleh DP 50%</li>
+                    <li class="pl-1">Transaksi dengan Nominal di atas Rp 500rb Wajib Lunas</li>
+                    <li class="pl-1">Transaksi dengan Nominal di bawah Rp 500rb Boleh DP 50%</li>
                     <li class="pl-1">Pengambilan Barang Dapat Dilakukan Setelah Pelunasan</li>
                     <li class="pl-1">
                         Transfer: <strong>BCA 3750183882 (Eka Yuliana)</strong>
