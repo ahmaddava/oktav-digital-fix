@@ -26,7 +26,7 @@ class FinancialReport extends Page implements HasForms, HasActions
     protected static ?string $navigationGroup = 'Reports';
     protected static string $view = 'filament.pages.financial-report';
 
-    public ?string $selectedMonth = null;
+    public ?string $selectedDate = null;
     public float $totalIncome = 0;
     public float $totalExpense = 0;
     public float $totalReceivables = 0;
@@ -38,7 +38,7 @@ class FinancialReport extends Page implements HasForms, HasActions
 
     public function mount(): void
     {
-        $this->selectedMonth = now()->format('Y-m');
+        $this->selectedDate = now()->startOfMonth()->format('Y-m-d');
         $this->calculateStats();
     }
 
@@ -62,7 +62,7 @@ class FinancialReport extends Page implements HasForms, HasActions
                         ->placeholder('Contoh: 100.000')
                         ->extraInputAttributes([
                             'x-data' => '{}',
-                            'x-on:input' => '$el.value = $el.value.replace(/[^0-9]/g, "").replace(/\B(?=(\d{3})+(?!\d))/g, ".")',
+                            'x-on:input' => 'let v = $el.value.replace(/\D/g, ""); $el.value = v.replace(/\B(?=(\d{3})+(?!\d))/g, ".")',
                             'inputmode' => 'numeric',
                         ])
                         ->dehydrateStateUsing(fn ($state) => $state ? (int) preg_replace('/[^0-9]/', '', $state) : 0),
@@ -98,31 +98,38 @@ class FinancialReport extends Page implements HasForms, HasActions
                 ->label('Export ke Excel')
                 ->icon('heroicon-o-document-arrow-down')
                 ->color('success')
-                ->url(fn(): string => route('export.financial-report', ['month' => $this->selectedMonth]), shouldOpenInNewTab: true),
+                ->url(fn(): string => route('export.financial-report', [
+                    'date' => $this->selectedDate
+                ]), shouldOpenInNewTab: true),
         ];
     }
 
     protected function getFormSchema(): array
     {
         return [
-            Select::make('selectedMonth')
+            DatePicker::make('selectedDate')
                 ->label('Pilih Bulan')
-                ->options($this->getAvailableMonths())
-                ->default($this->selectedMonth)
+                ->displayFormat('F Y')
+                ->format('Y-m-d')
+                ->native(false)
+                ->closeOnDateSelection()
+                ->default(now()->startOfMonth())
                 ->live(),
         ];
     }
 
     public function updated($propertyName): void
     {
-        if ($propertyName === 'selectedMonth') {
+        if ($propertyName === 'selectedDate') {
             $this->calculateStats();
         }
     }
 
     public function calculateStats(): void
     {
-        list($year, $month) = explode('-', $this->selectedMonth);
+        $date = Carbon::parse($this->selectedDate);
+        $year = $date->year;
+        $month = $date->month;
 
         // Query untuk income dari invoice yang sudah dibayar
         $incomeQuery = Invoice::query()
@@ -138,17 +145,6 @@ class FinancialReport extends Page implements HasForms, HasActions
         $this->totalExpense = $expenseQuery->sum('amount');
         $this->totalReceivables = Invoice::where('status', 'unpaid')->sum('grand_total');
         $this->balance = $this->totalIncome - $this->totalExpense;
-    }
-
-    private function getAvailableMonths(): array
-    {
-        $months = [];
-        $date = Carbon::now();
-        for ($i = 0; $i < 12; $i++) {
-            $months[$date->format('Y-m')] = $date->format('F Y');
-            $date->subMonth();
-        }
-        return $months;
     }
 
     // Edit expense action
@@ -173,7 +169,7 @@ class FinancialReport extends Page implements HasForms, HasActions
                     ->formatStateUsing(fn ($state) => $state ? number_format((int)$state, 0, ',', '.') : '')
                     ->extraInputAttributes([
                         'x-data' => '{}',
-                        'x-on:input' => '$el.value = $el.value.replace(/[^0-9]/g, "").replace(/\B(?=(\d{3})+(?!\d))/g, ".")',
+                        'x-on:input' => 'let v = $el.value.replace(/\D/g, ""); $el.value = v.replace(/\B(?=(\d{3})+(?!\d))/g, ".")',
                         'inputmode' => 'numeric',
                     ])
                     ->dehydrateStateUsing(fn ($state) => $state ? (int) preg_replace('/[^0-9]/', '', $state) : 0),

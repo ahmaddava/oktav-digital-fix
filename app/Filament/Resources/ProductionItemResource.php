@@ -52,9 +52,16 @@ class ProductionItemResource extends Resource
                     ->schema([
                         Forms\Components\TextInput::make('price')
                             ->label('Harga Utama')
-                            ->numeric()
                             ->required()
                             ->prefix('Rp')
+                            ->placeholder('Contoh: 100.000')
+                            ->extraInputAttributes([
+                                'x-data' => '{}',
+                                'x-on:input' => 'let v = $el.value.replace(/\D/g, ""); $el.value = v.replace(/\B(?=(\d{3})+(?!\d))/g, ".")',
+                                'inputmode' => 'numeric',
+                            ])
+                            ->formatStateUsing(fn ($state) => $state ? number_format((int)$state, 0, ',', '.') : '')
+                            ->dehydrateStateUsing(fn ($state) => $state ? (int) preg_replace('/[^0-9]/', '', $state) : 0)
                             ->columnSpan(1),
 
                         Forms\Components\TextInput::make('lebar_kertas')
@@ -87,9 +94,15 @@ class ProductionItemResource extends Resource
                             ->placeholder('Contoh: 100, 200, 500'),
                         Forms\Components\TextInput::make('price')
                             ->label('Harga')
-                            ->numeric()
                             ->prefix('Rp')
-                            ->placeholder('Harga untuk quantity tersebut'),
+                            ->placeholder('Contoh: 100.000')
+                            ->extraInputAttributes([
+                                'x-data' => '{}',
+                                'x-on:input' => 'let v = $el.value.replace(/\D/g, ""); $el.value = v.replace(/\B(?=(\d{3})+(?!\d))/g, ".")',
+                                'inputmode' => 'numeric',
+                            ])
+                            ->formatStateUsing(fn ($state) => $state ? number_format((int)$state, 0, ',', '.') : '')
+                            ->dehydrateStateUsing(fn ($state) => $state ? (int) preg_replace('/[^0-9]/', '', $state) : 0),
                     ])
                     ->columnSpanFull(),
             ]);

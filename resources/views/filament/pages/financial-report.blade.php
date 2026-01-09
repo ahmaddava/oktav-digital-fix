@@ -69,12 +69,14 @@
     </style>
 
     <div class="space-y-6">
-        {{-- Header Section with Month Filter --}}
+        {{-- Header Section with Year & Month Filter --}}
         <div class="fi-section rounded-xl bg-white shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10">
             <div class="fi-section-content-ctn p-4">
-                <form wire:submit.prevent class="max-w-xs">
-                    {{ $this->form }}
-                </form>
+                <div class="flex flex-wrap items-end gap-4">
+                    <form wire:submit.prevent class="flex flex-wrap gap-4">
+                        {{ $this->form }}
+                    </form>
+                </div>
             </div>
         </div>
 
@@ -134,7 +136,9 @@
         </div>
 
         @php
-            [$year, $month] = explode('-', $this->selectedMonth);
+            $date = \Carbon\Carbon::parse($this->selectedDate);
+            $year = $date->year;
+            $month = $date->format('m');
         @endphp
 
         {{-- Tables Section --}}
@@ -203,9 +207,11 @@
                         {{ $incomeData->links() }}
                     </div>
                 @else
-                    <div class="text-center py-12">
-                        <x-heroicon-o-document-text class="h-12 w-12 mx-auto text-gray-300 dark:text-gray-600" />
-                        <p class="mt-2 text-gray-500 dark:text-gray-400">Tidak ada pemasukan bulan ini</p>
+                    <div class="flex flex-col items-center justify-center py-6 text-center">
+                        <div class="rounded-full bg-gray-100 p-3 dark:bg-gray-800">
+                            <x-heroicon-o-document-magnifying-glass class="h-6 w-6 text-gray-400" />
+                        </div>
+                        <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">Belum ada data pemasukan pada periode ini</p>
                     </div>
                 @endif
             </x-filament::section>
@@ -306,9 +312,11 @@
                         {{ $expenseData->links() }}
                     </div>
                 @else
-                    <div class="text-center py-12">
-                        <x-heroicon-o-banknotes class="h-12 w-12 mx-auto text-gray-300 dark:text-gray-600" />
-                        <p class="mt-2 text-gray-500 dark:text-gray-400">Tidak ada pengeluaran bulan ini</p>
+                    <div class="flex flex-col items-center justify-center py-6 text-center">
+                        <div class="rounded-full bg-gray-100 p-3 dark:bg-gray-800">
+                            <x-heroicon-o-banknotes class="h-6 w-6 text-gray-400" />
+                        </div>
+                        <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">Belum ada data pengeluaran pada periode ini</p>
                         <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">Klik "Tambah Pengeluaran" untuk menambah data</p>
                     </div>
                 @endif

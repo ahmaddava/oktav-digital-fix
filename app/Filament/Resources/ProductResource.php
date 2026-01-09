@@ -67,7 +67,7 @@ class ProductResource extends Resource implements HasShieldPermissions
                     ->placeholder('Contoh: 100.000')
                     ->extraInputAttributes([
                         'x-data' => '{}',
-                        'x-on:input' => '$el.value = $el.value.replace(/[^0-9]/g, "").replace(/\B(?=(\d{3})+(?!\d))/g, ".")',
+                        'x-on:input' => 'let v = $el.value.replace(/\D/g, ""); $el.value = v.replace(/\B(?=(\d{3})+(?!\d))/g, ".")',
                         'inputmode' => 'numeric',
                     ])
                     ->formatStateUsing(fn ($state) => $state ? number_format((int)$state, 0, ',', '.') : '')
@@ -110,7 +110,7 @@ class ProductResource extends Resource implements HasShieldPermissions
                             ->placeholder('Contoh: 100.000')
                             ->extraInputAttributes([
                                 'x-data' => '{}',
-                                'x-on:input' => '$el.value = $el.value.replace(/[^0-9]/g, "").replace(/\B(?=(\d{3})+(?!\d))/g, ".")',
+                                'x-on:input' => 'let v = $el.value.replace(/\D/g, ""); $el.value = v.replace(/\B(?=(\d{3})+(?!\d))/g, ".")',
                                 'inputmode' => 'numeric',
                             ])
                             ->formatStateUsing(fn ($state) => $state ? number_format((int)$state, 0, ',', '.') : '')

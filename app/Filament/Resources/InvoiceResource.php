@@ -337,11 +337,13 @@ class InvoiceResource extends Resource implements HasShieldPermissions
                                                 ->required()
                                                 ->placeholder('0')
                                                 ->minValue(1)
-                                                ->live()
+                                                ->live(onBlur: true)
                                                 ->afterStateUpdated(function ($state, Set $set, Get $get) {
-                                                    $price = (float) ($get('price') ?: 0);
+                                                    $rawPrice = $get('price') ?: 0;
+                                                    // Clean formatted price (remove dots)
+                                                    $cleanPrice = is_string($rawPrice) ? (float) preg_replace('/[^0-9]/', '', $rawPrice) : (float) $rawPrice;
                                                     $quantity = (float) ($state ?: 0);
-                                                    $total = $price * $quantity;
+                                                    $total = $cleanPrice * $quantity;
 
                                                     $set('total_price', $total);
                                                 }),
@@ -349,17 +351,25 @@ class InvoiceResource extends Resource implements HasShieldPermissions
                                             // Input harga
                                             TextInput::make('price')
                                                 ->label('Harga')
-                                                ->numeric()
                                                 ->prefix('Rp')
                                                 ->required()
-                                                ->live()
+                                                ->live(onBlur: true)
                                                 ->disabled(fn(Get $get) => $get('type') === 'existing')
                                                 ->dehydrated()
+                                                ->placeholder('Contoh: 100.000')
+                                                ->extraInputAttributes([
+                                                    'x-on:input' => 'let v = $el.value.replace(/\D/g, ""); $el.value = v.replace(/\B(?=(\d{3})+(?!\d))/g, ".")',
+                                                    'inputmode' => 'numeric',
+                                                ])
+                                                ->formatStateUsing(function ($state) {
+                                                    if (empty($state)) return '';
+                                                    return number_format((float)$state, 0, ',', '.');
+                                                })
                                                 ->afterStateUpdated(function ($state, Set $set, Get $get) {
-                                                    // Hitung ulang total price ketika harga berubah
+                                                    // Clean the formatted value to get numeric
+                                                    $cleanPrice = $state ? (float) preg_replace('/[^0-9]/', '', $state) : 0;
                                                     $quantity = (float) ($get('quantity') ?: 1);
-                                                    $price = (float) ($state ?: 0);
-                                                    $total = $price * $quantity;
+                                                    $total = $cleanPrice * $quantity;
 
                                                     $set('total_price', $total);
 
@@ -372,15 +382,19 @@ class InvoiceResource extends Resource implements HasShieldPermissions
                                                         }
                                                     }
                                                     $set('../../grand_total', $grandTotal);
-                                                }),
+                                                })
+                                                ->dehydrateStateUsing(fn ($state) => $state ? (int) preg_replace('/[^0-9]/', '', $state) : 0),
 
                                             // Display total harga per item
                                             TextInput::make('total_price')
                                                 ->label('Total')
-                                                ->numeric()
                                                 ->prefix('Rp')
                                                 ->disabled()
                                                 ->dehydrated()
+                                                ->extraInputAttributes([
+                                                    'x-init' => '$nextTick(() => { let v = String($el.value).replace(/\D/g, ""); if(v) $el.value = v.replace(/\B(?=(\d{3})+(?!\d))/g, "."); })',
+                                                    'x-effect' => 'let v = String($el.value).replace(/\D/g, ""); if(v) $el.value = v.replace(/\B(?=(\d{3})+(?!\d))/g, ".")',
+                                                ])
                                                 ->formatStateUsing(function ($state) {
                                                     if (empty($state)) return '0';
                                                     return number_format((float)$state, 0, ',', '.');
@@ -394,13 +408,16 @@ class InvoiceResource extends Resource implements HasShieldPermissions
                                     TextInput::make('grand_total')
                                         ->label('Grand Total')
                                         ->disabled()
-                                        ->prefix('Rp ')
+                                        ->prefix('Rp')
                                         ->dehydrated()
+                                        ->extraInputAttributes([
+                                            'x-init' => '$nextTick(() => { let v = String($el.value).replace(/\D/g, ""); if(v) $el.value = v.replace(/\B(?=(\d{3})+(?!\d))/g, "."); })',
+                                            'x-effect' => 'let v = String($el.value).replace(/\D/g, ""); if(v) $el.value = v.replace(/\B(?=(\d{3})+(?!\d))/g, ".")',
+                                        ])
                                         ->formatStateUsing(function ($state) {
                                             if (empty($state)) return '0';
                                             return number_format((float)$state, 0, ',', '.');
-                                        })
-                                        ->numeric(),
+                                        }),
                                 ]),
                         ]),
                 ])->skippable(false)->columnSpanFull(),

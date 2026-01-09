@@ -13,11 +13,12 @@ class ReportExportController extends Controller
 {
     public function export(Request $request)
     {
-        // Ambil parameter bulan, default ke bulan ini jika tidak ada
-        $monthFilter = $request->query('month', now()->format('Y-m'));
-        list($year, $month) = explode('-', $monthFilter);
-
-        $date = Carbon::createFromDate($year, $month, 1);
+        // Ambil parameter tanggal, default ke bulan ini
+        $dateParam = $request->query('date', now()->startOfMonth()->format('Y-m-d'));
+        $date = Carbon::parse($dateParam);
+        
+        $year = $date->year;
+        $month = $date->month;
         $startDate = $date->startOfMonth()->format('Y-m-d');
         $endDate = $date->endOfMonth()->format('Y-m-d');
 
