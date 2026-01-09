@@ -80,12 +80,12 @@
                 <p>Telp/Whatsapp, 0881 0110 60611</p>
             </div>
             <div class="text-center flex-1 mr-[50px] mt-[-10px]">
-                <h2 class="font-bold text-xl italic">INVOICE</h2> {{-- Increased title size --}}
+                <h2 class="font-bold text-l italic">INVOICE</h2> {{-- Increased title size --}}
             </div>
         </div>
 
         <!-- Tabel -->
-        <table class="w-full mt-1 border-collapse text-[12px] leading-tight"> {{-- Increased to 12px --}}
+        <table class="w-full mt-1 border-collapse text-[13px] leading-tight"> {{-- Increased to 12px --}}
             <thead>
                 <tr class="border-t-2 border-b-2 border-double border-black">
                     <th class="text-left p-1">No.</th>
@@ -139,7 +139,7 @@
         </table>
 
          <div>
-            <table class="w-full text-[12px] leading-tight mt-1"> {{-- Increased to 12px --}}
+            <table class="w-full text-[13px] leading-tight mt-1"> {{-- Reduced to 10px to matches header --}}
                 <tr>
                     <!-- Kolom Kiri -->
                     <td class="w-2/5" style="vertical-align: top;">
@@ -162,7 +162,7 @@
 
                     <!-- Kolom Kanan -->
                     <td class="w-2/5" style="vertical-align: top;">
-                        <table class="w-full">
+                        <table class="w-full text-[10px]"> {{-- Specific smaller font for totals --}}
                             <tr>
                                 <td class="text-right py-0 text-gray-600">Subtotal</td>
                                 <td class="w-8 text-right py-0 text-gray-600">Rp</td>
