@@ -36,14 +36,24 @@ class Product extends Model
                 $product->stock = 0; // atau null
             }
 
-            // Hitung jumlah produk dengan tipe yang sama
-            $count = Product::where('type', $product->type)->count() + 1;
+            // Ambil nomor urut terakhir berdasarkan SKU
+            $latestProduct = Product::where('type', $product->type)
+                ->where('sku', 'like', $prefix . '-%')
+                ->orderByRaw('CAST(SUBSTRING(sku, ' . (strlen($prefix) + 2) . ') AS UNSIGNED) DESC') // Extract number after prefix
+                ->first();
+
+            $nextNumber = 1;
+            if ($latestProduct) {
+                // Hapus prefix dan ambil angkanya
+                $latestNumber = (int) substr($latestProduct->sku, strlen($prefix) + 1);
+                $nextNumber = $latestNumber + 1;
+            }
             
             // Format SKU: Prefix-001
             $product->sku = sprintf(
                 '%s-%03d',
                 $prefix,
-                $count
+                $nextNumber
             );
         });
     }
