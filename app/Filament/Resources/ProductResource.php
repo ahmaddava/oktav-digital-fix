@@ -61,9 +61,17 @@ class ProductResource extends Resource implements HasShieldPermissions
     
                 // Input untuk harga produk dasar
                 TextInput::make('price')
+                    ->label('Harga')
                     ->required()
-                    ->numeric()
-                    ->prefix('Rp'),
+                    ->prefix('Rp')
+                    ->placeholder('Contoh: 100.000')
+                    ->extraInputAttributes([
+                        'x-data' => '{}',
+                        'x-on:input' => '$el.value = $el.value.replace(/[^0-9]/g, "").replace(/\B(?=(\d{3})+(?!\d))/g, ".")',
+                        'inputmode' => 'numeric',
+                    ])
+                    ->formatStateUsing(fn ($state) => $state ? number_format((int)$state, 0, ',', '.') : '')
+                    ->dehydrateStateUsing(fn ($state) => $state ? (int) preg_replace('/[^0-9]/', '', $state) : 0),
     
                 // Input untuk stock (hanya untuk produk digital print)
                 TextInput::make('stock')
@@ -98,9 +106,15 @@ class ProductResource extends Resource implements HasShieldPermissions
                         // Input untuk harga berdasarkan quantity tersebut
                         TextInput::make('price')
                             ->label('Harga')
-                            ->numeric()
                             ->prefix('Rp')
-                            ->placeholder('Harga untuk quantity tersebut'),
+                            ->placeholder('Contoh: 100.000')
+                            ->extraInputAttributes([
+                                'x-data' => '{}',
+                                'x-on:input' => '$el.value = $el.value.replace(/[^0-9]/g, "").replace(/\B(?=(\d{3})+(?!\d))/g, ".")',
+                                'inputmode' => 'numeric',
+                            ])
+                            ->formatStateUsing(fn ($state) => $state ? number_format((int)$state, 0, ',', '.') : '')
+                            ->dehydrateStateUsing(fn ($state) => $state ? (int) preg_replace('/[^0-9]/', '', $state) : 0),
                     ])
                     ->columnSpanFull(2),
             ]);

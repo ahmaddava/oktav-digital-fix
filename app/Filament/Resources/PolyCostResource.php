@@ -38,9 +38,16 @@ class PolyCostResource extends Resource
                 ->required(),
             Forms\Components\TextInput::make('cost')
                 ->label('Harga Poly')
-                ->numeric()
+                ->required()
                 ->prefix('Rp')
-                ->required(),
+                ->placeholder('Contoh: 100.000')
+                ->extraInputAttributes([
+                    'x-data' => '{}',
+                    'x-on:input' => '$el.value = $el.value.replace(/[^0-9]/g, "").replace(/\B(?=(\d{3})+(?!\d))/g, ".")',
+                    'inputmode' => 'numeric',
+                ])
+                ->formatStateUsing(fn ($state) => $state ? number_format((int)$state, 0, ',', '.') : '')
+                ->dehydrateStateUsing(fn ($state) => $state ? (int) preg_replace('/[^0-9]/', '', $state) : 0),
         ]);
     }
 
