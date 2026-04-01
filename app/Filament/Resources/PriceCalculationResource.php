@@ -18,8 +18,25 @@ class PriceCalculationResource extends Resource
 {
     protected static ?string $model = PriceCalculation::class;
     protected static ?string $navigationIcon = 'heroicon-o-clock';
-    protected static ?string $navigationGroup = 'Kalkulasi Harga';
-    protected static ?string $navigationLabel = 'Riwayat Kalkulasi';
+    public static function getNavigationLabel(): string
+    {
+        return __('Riwayat Kalkulasi');
+    }
+
+    public static function getNavigationGroup(): ?string
+    {
+        return __('Kalkulasi Harga');
+    }
+
+    public static function getModelLabel(): string
+    {
+        return __('Kalkulasi');
+    }
+
+    public static function getPluralModelLabel(): string
+    {
+        return __('Kalkulasi');
+    }
     protected static ?string $pluralModelLabel = 'Riwayat Kalkulasi';
 
     public static function getPermissionPrefixes(): array

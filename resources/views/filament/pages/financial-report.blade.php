@@ -136,9 +136,8 @@
         </div>
 
         @php
-            $date = \Carbon\Carbon::parse($this->selectedDate);
-            $year = $date->year;
-            $month = $date->format('m');
+            $start = \Carbon\Carbon::parse($this->startDate)->startOfDay();
+            $end = \Carbon\Carbon::parse($this->endDate)->endOfDay();
         @endphp
 
         {{-- Tables Section --}}
@@ -166,8 +165,7 @@
                 @php
                     $incomeData = \App\Models\Invoice::query()
                         ->where('status', 'paid')
-                        ->whereYear('updated_at', $year)
-                        ->whereMonth('updated_at', $month)
+                        ->whereBetween('updated_at', [$start, $end])
                         ->orderBy('updated_at', 'desc')
                         ->paginate($this->incomePerPage, ['*'], 'incomePage');
                 @endphp
@@ -238,8 +236,7 @@
                 
                 @php
                     $expenseData = \App\Models\Expense::query()
-                        ->whereYear('expense_date', $year)
-                        ->whereMonth('expense_date', $month)
+                        ->whereBetween('expense_date', [$start, $end])
                         ->orderBy('expense_date', 'desc')
                         ->paginate($this->expensePerPage, ['*'], 'expensePage');
                 @endphp

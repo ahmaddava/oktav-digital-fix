@@ -16,8 +16,25 @@ use Illuminate\Database\Eloquent\SoftDeletingScope;
 class MasterCostResource extends Resource
 {
     protected static ?string $model = MasterCost::class;
-    protected static ?string $navigationGroup = 'Manajemen Harga';
-    protected static ?string $navigationLabel = 'Biaya Produksi';
+    public static function getNavigationLabel(): string
+    {
+        return __('Biaya Produksi');
+    }
+
+    public static function getNavigationGroup(): ?string
+    {
+        return __('Manajemen Harga');
+    }
+
+    public static function getModelLabel(): string
+    {
+        return __('Biaya Produksi');
+    }
+
+    public static function getPluralModelLabel(): string
+    {
+        return __('Biaya Produksi');
+    }
     protected static ?string $navigationIcon = 'heroicon-o-cog-6-tooth';
 
     public static function form(Form $form): Form

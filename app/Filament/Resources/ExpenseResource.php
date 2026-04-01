@@ -16,7 +16,25 @@ class ExpenseResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-arrow-trending-down';
 
-    protected static ?string $navigationGroup = 'Management';
+    public static function getNavigationLabel(): string
+    {
+        return __('Pengeluaran');
+    }
+
+    public static function getNavigationGroup(): ?string
+    {
+        return __('Manajemen');
+    }
+
+    public static function getModelLabel(): string
+    {
+        return __('Pengeluaran');
+    }
+
+    public static function getPluralModelLabel(): string
+    {
+        return __('Pengeluaran');
+    }
 
     protected static bool $shouldRegisterNavigation = false; 
 

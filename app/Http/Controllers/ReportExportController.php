@@ -13,38 +13,34 @@ class ReportExportController extends Controller
 {
     public function export(Request $request)
     {
-        // Ambil parameter tanggal, default ke bulan ini
-        $dateParam = $request->query('date', now()->startOfMonth()->format('Y-m-d'));
-        $date = Carbon::parse($dateParam);
+        // Ambil parameter tanggal dari request
+        $startDateParam = $request->query('start_date', now()->startOfMonth()->format('Y-m-d'));
+        $endDateParam = $request->query('end_date', now()->endOfMonth()->format('Y-m-d'));
         
-        $year = $date->year;
-        $month = $date->month;
-        $startDate = $date->startOfMonth()->format('Y-m-d');
-        $endDate = $date->endOfMonth()->format('Y-m-d');
+        $start = Carbon::parse($startDateParam)->startOfDay();
+        $end = Carbon::parse($endDateParam)->endOfDay();
 
         $income = Invoice::query()
             ->where('status', 'paid')
-            ->whereYear('updated_at', $year)
-            ->whereMonth('updated_at', $month)
+            ->whereBetween('updated_at', [$start, $end])
             ->get();
 
         $expenses = Expense::query()
-            ->whereYear('expense_date', $year)
-            ->whereMonth('expense_date', $month)
+            ->whereBetween('expense_date', [$start, $end])
             ->get();
 
         $totalIncome = $income->sum('grand_total');
         $totalExpense = $expenses->sum('amount');
 
         $summary = [
-            'startDate' => $startDate,
-            'endDate' => $endDate,
+            'startDate' => Carbon::parse($startDateParam)->format('d/m/Y'),
+            'endDate' => Carbon::parse($endDateParam)->format('d/m/Y'),
             'totalIncome' => $totalIncome,
             'totalExpense' => $totalExpense,
             'balance' => $totalIncome - $totalExpense,
         ];
 
-        $fileName = 'Laporan-Keuangan-' . $date->format('F-Y') . '.xlsx';
+        $fileName = 'Laporan-Keuangan-' . $start->format('d-m-Y') . '-sd-' . $end->format('d-m-Y') . '.xlsx';
 
         return Excel::download(new FinancialReportExport($income, $expenses, $summary), $fileName);
     }

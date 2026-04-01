@@ -22,10 +22,13 @@ class Invoice extends Model
         'invoice_number',
         'dp',
         'payment_method',
+        'due_date',
         'grand_total',
         'customer_email',
         'alamat_customer',
         'attachment_path',
+        'created_at',
+        'updated_at',
     ];
 
 

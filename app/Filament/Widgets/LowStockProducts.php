@@ -10,7 +10,8 @@ use Filament\Tables\Actions\Action;
 
 class LowStockProducts extends BaseWidget
 {
-    protected int | string | array $columnSpan = 'full';
+    protected static ?int $sort = 4;
+    protected int | string | array $columnSpan = 1;
 
     public function table(Table $table): Table
     {

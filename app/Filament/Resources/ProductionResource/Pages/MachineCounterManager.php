@@ -11,6 +11,7 @@ use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Form;
 use Filament\Notifications\Notification;
 use App\Models\Production;
+use App\Models\Machine;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
 
@@ -22,96 +23,83 @@ class MachineCounterManager extends Page implements HasForms
     protected static string $view = 'filament.resources.production-resource.pages.machine-counter-manager';
     protected static ?string $title = 'Pengaturan Counter Mesin';
     
-    // Data model untuk form
     public ?array $data = [];
     
     public function mount(): void
     {
-        // Inisialisasi data
         $this->refreshCounterData();
         $this->form->fill($this->data);
     }
     
     public function refreshCounterData(): void
     {
-        // Dapatkan total counter untuk kedua mesin - hanya dari produksi normal (non-adjustment)
-        $normalCounters = DB::table('productions')
-            ->selectRaw('machine_type, SUM(total_counter) as total')
-            ->where(function($query) {
-                $query->where('is_adjustment', 0)
-                    ->orWhereNull('is_adjustment');
-            })
-            ->groupBy('machine_type')
-            ->get()
-            ->keyBy('machine_type')
-            ->map(fn($item) => $item->total ?? 0)
-            ->toArray();
+        // Load only machines that use clicks
+        $machines = Machine::where('use_clicks', true)->get();
+
+        $data = [];
         
-        // Dapatkan adjustment counter terakhir untuk setiap mesin
-        $adjustments = DB::table('productions')
-            ->where('is_adjustment', 1)
-            ->orderBy('id', 'desc')
-            ->get()
-            ->groupBy('machine_type')
-            ->map(function ($items) {
-                // Ambil adjustment terakhir untuk mesin ini
-                return $items->first()->adjustment_value ?? 0;
-            })
-            ->toArray();
+        foreach ($machines as $machine) {
+            $key = 'machine_' . $machine->id;
+            
+            // Normal counter (non-adjustment)
+            $normalTotal = DB::table('productions')
+                ->where('machine_id', $machine->id)
+                ->where(function($query) {
+                    $query->where('is_adjustment', 0)
+                        ->orWhereNull('is_adjustment');
+                })
+                ->sum('total_counter');
+
+            // Get last adjustment value
+            $adjustment = DB::table('productions')
+                ->where('machine_id', $machine->id)
+                ->where('is_adjustment', 1)
+                ->orderBy('id', 'desc')
+                ->first();
+
+            $adjustmentValue = $adjustment->adjustment_value ?? 0;
+            $total = $normalTotal + $adjustmentValue;
+            
+            $data[$key . '_current'] = $total;
+            $data[$key . '_new'] = $total;
+        }
         
-        // Hitung total counter saat ini untuk tiap mesin (produksi normal + adjustment)
-        $mesin1Total = ($normalCounters['mesin_1'] ?? 0) + ($adjustments['mesin_1'] ?? 0);
-        $mesin2Total = ($normalCounters['mesin_2'] ?? 0) + ($adjustments['mesin_2'] ?? 0);
-        
-        // Set data untuk form
-        $this->data = [
-            'mesin_1_current' => $mesin1Total,
-            'mesin_2_current' => $mesin2Total,
-            'mesin_1_new' => $mesin1Total,
-            'mesin_2_new' => $mesin2Total,
-        ];
-        
-        // Log data untuk debugging
-        Log::info('Normal counters: ' . json_encode($normalCounters));
-        Log::info('Adjustments: ' . json_encode($adjustments));
-        Log::info('Total counters: M1=' . $mesin1Total . ', M2=' . $mesin2Total);
+        $this->data = $data;
     }
     
     public function form(Form $form): Form
     {
+        $machines = Machine::where('use_clicks', true)->get();
+        
+        $currentFields = [];
+        $updateFields = [];
+        
+        foreach ($machines as $machine) {
+            $key = 'machine_' . $machine->id;
+            
+            $currentFields[] = TextInput::make($key . '_current')
+                ->label($machine->name)
+                ->disabled()
+                ->numeric();
+            
+            $updateFields[] = TextInput::make($key . '_new')
+                ->label($machine->name . ' - Nilai Baru')
+                ->required()
+                ->numeric()
+                ->helperText('Masukkan nilai aktual pada counter ' . $machine->name);
+        }
+        
         return $form
             ->schema([
                 Section::make('Status Counter Saat Ini')
                     ->description('Nilai counter yang tersimpan di database')
-                    ->schema([
-                        TextInput::make('mesin_1_current')
-                            ->label('Mesin 1')
-                            ->disabled()
-                            ->numeric(),
-                        
-                        TextInput::make('mesin_2_current')
-                            ->label('Mesin 2')
-                            ->disabled()
-                            ->numeric(),
-                    ])
-                    ->columns(2),
+                    ->schema($currentFields)
+                    ->columns(min(count($currentFields), 3)),
                 
                 Section::make('Update Counter Mesin')
                     ->description('Masukkan nilai counter sesuai dengan angka pada mesin fisik')
-                    ->schema([
-                        TextInput::make('mesin_1_new')
-                            ->label('Mesin 1 - Nilai Baru')
-                            ->required()
-                            ->numeric()
-                            ->helperText('Masukkan nilai aktual pada counter mesin 1'),
-                        
-                        TextInput::make('mesin_2_new')
-                            ->label('Mesin 2 - Nilai Baru')
-                            ->required()
-                            ->numeric()
-                            ->helperText('Masukkan nilai aktual pada counter mesin 2'),
-                    ])
-                    ->columns(2),
+                    ->schema($updateFields)
+                    ->columns(min(count($updateFields), 3)),
             ])
             ->statePath('data');
     }
@@ -119,39 +107,27 @@ class MachineCounterManager extends Page implements HasForms
     public function updateCounters(): void
     {
         try {
-            // Begin transaction
             DB::beginTransaction();
             
-            // Dapatkan dan validasi nilai dari form
             $data = $this->form->getState();
-            
-            // Dapatkan daftar kolom yang ada di tabel productions
+            $machines = Machine::where('use_clicks', true)->get();
             $columns = DB::getSchemaBuilder()->getColumnListing('productions');
             
-            // Ambil nilai dari state
-            $mesin1Current = intval($data['mesin_1_current'] ?? 0);
-            $mesin1New = intval($data['mesin_1_new'] ?? 0);
-            $mesin2Current = intval($data['mesin_2_current'] ?? 0);
-            $mesin2New = intval($data['mesin_2_new'] ?? 0);
-            
-            // Proses masing-masing mesin
             $changes = false;
             
-            // Hanya update jika ada perubahan nilai
-            if ($mesin1New !== $mesin1Current) {
-                $this->setTotalCounter('mesin_1', $mesin1New, $columns);
-                $changes = true;
+            foreach ($machines as $machine) {
+                $key = 'machine_' . $machine->id;
+                $current = intval($data[$key . '_current'] ?? 0);
+                $new = intval($data[$key . '_new'] ?? 0);
+                
+                if ($new !== $current) {
+                    $this->setTotalCounter($machine->id, $new, $columns);
+                    $changes = true;
+                }
             }
             
-            if ($mesin2New !== $mesin2Current) {
-                $this->setTotalCounter('mesin_2', $mesin2New, $columns);
-                $changes = true;
-            }
-            
-            // Commit transaction
             DB::commit();
             
-            // Tampilkan notifikasi berdasarkan apakah ada perubahan atau tidak
             if ($changes) {
                 Notification::make()
                     ->title('Counter Berhasil Diperbarui')
@@ -165,21 +141,13 @@ class MachineCounterManager extends Page implements HasForms
                     ->send();
             }
             
-            // Refresh data
             $this->refreshCounterData();
             $this->form->fill($this->data);
-            
-            // Refresh widget counter
             $this->dispatch('refresh-stats');
         } catch (\Exception $e) {
-            // Rollback transaction
             DB::rollBack();
-            
-            // Log error
             Log::error('Error updating counters: ' . $e->getMessage());
-            Log::error('Error trace: ' . $e->getTraceAsString());
             
-            // Tampilkan notifikasi error
             Notification::make()
                 ->title('Error')
                 ->body('Terjadi kesalahan: ' . $e->getMessage())
@@ -188,40 +156,42 @@ class MachineCounterManager extends Page implements HasForms
         }
     }
     
-    private function setTotalCounter(string $machineType, int $newTotalValue, array $columns): void
+    private function setTotalCounter(int $machineId, int $newTotalValue, array $columns): void
     {
-        // 1. Ambil total counter dari produksi normal (non-adjustment)
+        $machine = Machine::find($machineId);
+        
+        // 1. Get normal counter total
         $normalTotal = DB::table('productions')
-            ->where('machine_type', $machineType)
+            ->where('machine_id', $machineId)
             ->where(function($query) {
                 $query->where('is_adjustment', 0)
                     ->orWhereNull('is_adjustment');
             })
             ->sum('total_counter');
         
-        // 2. Hapus semua adjustment sebelumnya untuk mesin ini
+        // 2. Delete previous adjustments for this machine
         DB::table('productions')
-            ->where('machine_type', $machineType)
+            ->where('machine_id', $machineId)
             ->where('is_adjustment', 1)
             ->delete();
         
-        // 3. Hitung nilai adjustment yang diperlukan untuk mencapai total baru
+        // 3. Calculate the adjustment needed
         $adjustmentValue = $newTotalValue - $normalTotal;
         
-        // 4. Siapkan data untuk insert record adjustment baru
+        // 4. Insert new adjustment record
         $insertData = [
-            'machine_type' => $machineType,
+            'machine_id' => $machineId,
+            'machine_type' => 'mesin_' . $machineId, // Backward compatibility
             'status' => 'completed',
             'total_clicks' => 0,
             'total_counter' => $adjustmentValue,
-            'notes' => "Adjustment counter mesin $machineType ke nilai $newTotalValue",
+            'notes' => "Adjustment counter {$machine->name} ke nilai $newTotalValue",
             'created_at' => now(),
             'updated_at' => now(),
             'is_adjustment' => 1,
-            'adjustment_value' => $adjustmentValue, // Simpan nilai adjustment
+            'adjustment_value' => $adjustmentValue,
         ];
         
-        // Tambahkan kolom lain jika ada di tabel
         if (in_array('completed_at', $columns)) {
             $insertData['completed_at'] = now();
         }
@@ -230,14 +200,12 @@ class MachineCounterManager extends Page implements HasForms
             $insertData['failed_prints'] = 0;
         }
         
-        // Jika kolom invoice_id ada di tabel, set nilainya ke null
         if (in_array('invoice_id', $columns)) {
             $insertData['invoice_id'] = null;
         }
         
-        // 5. Insert adjustment record baru ke database
         DB::table('productions')->insert($insertData);
         
-        Log::info("Set total counter for $machineType to $newTotalValue (normal: $normalTotal, adjustment: $adjustmentValue)");
+        Log::info("Set total counter for {$machine->name} (ID: $machineId) to $newTotalValue (normal: $normalTotal, adjustment: $adjustmentValue)");
     }
 }

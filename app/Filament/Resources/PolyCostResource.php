@@ -13,8 +13,25 @@ use Filament\Tables\Table;
 class PolyCostResource extends Resource
 {
     protected static ?string $model = PolyCost::class;
-    protected static ?string $navigationGroup = 'Manajemen Harga';
-    protected static ?string $navigationLabel = 'Biaya Poly';
+    public static function getNavigationLabel(): string
+    {
+        return __('Biaya Poly');
+    }
+
+    public static function getNavigationGroup(): ?string
+    {
+        return __('Manajemen Harga');
+    }
+
+    public static function getModelLabel(): string
+    {
+        return __('Biaya Poly');
+    }
+
+    public static function getPluralModelLabel(): string
+    {
+        return __('Biaya Poly');
+    }
     protected static ?string $navigationIcon = 'heroicon-o-cube';
 
     public static function getPermissionPrefixes(): array

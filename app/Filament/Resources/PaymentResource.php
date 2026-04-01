@@ -23,17 +23,29 @@ use Filament\Forms\Set;
 
 class PaymentResource extends Resource implements HasShieldPermissions
 {
-    protected static ?string $navigationGroup = 'Management';
+    public static function getNavigationLabel(): string
+    {
+        return __('Pembayaran');
+    }
+
+    public static function getNavigationGroup(): ?string
+    {
+        return __('Manajemen');
+    }
+
+    public static function getModelLabel(): string
+    {
+        return __('Pembayaran');
+    }
+
+    public static function getPluralModelLabel(): string
+    {
+        return __('Pembayaran');
+    }
 
     protected static ?string $model = Invoice::class;
 
     protected static ?string $navigationIcon = 'heroicon-o-credit-card';
-
-    protected static ?string $navigationLabel = 'Payment Management';
-
-    protected static ?string $modelLabel = 'Payment';
-
-    protected static ?string $pluralModelLabel = 'Payments';
 
     public static function getPermissionPrefixes(): array
     {
@@ -51,44 +63,11 @@ class PaymentResource extends Resource implements HasShieldPermissions
     {
         return $form
             ->schema([
-                Section::make('Invoice Information')
+                Grid::make(12)
                     ->schema([
-                        Grid::make(2)->schema([
-                            TextInput::make('invoice_number')
-                                ->label('Invoice Number')
-                                ->disabled()
-                                ->dehydrated(false),
-
-                            TextInput::make('name_customer')
-                                ->label('Customer Name')
-                                ->disabled()
-                                ->dehydrated(false),
-                        ]),
-
-                        Grid::make(2)->schema([
-                            TextInput::make('customer_phone')
-                                ->label('Customer Phone')
-                                ->disabled()
-                                ->dehydrated(false),
-
-                            TextInput::make('customer_email')
-                                ->label('Customer Email')
-                                ->disabled()
-                                ->dehydrated(false),
-                        ]),
-
-                        TextInput::make('grand_total')
-                            ->label('Total Amount')
-                            ->disabled()
-                            ->prefix('Rp ')
-                            ->formatStateUsing(function ($state) {
-                                return number_format((float)$state, 0, ',', '.');
-                            })
-                            ->dehydrated(false)
-                            ->columnSpanFull(),
-                    ])
-                    ->columns(2)
-                    ->compact(),
+                        Grid::make(1)
+                            ->columnSpan(['sm' => 12, 'md' => 8])
+                            ->schema([
 
                 Section::make('Payment Details')
                     ->schema([
@@ -244,6 +223,115 @@ class PaymentResource extends Resource implements HasShieldPermissions
                     ])
                     ->columns(2)
                     ->compact(),
+
+                \Filament\Forms\Components\Section::make('Rincian Item (Bisa Update Keterangan)')
+                    ->icon('heroicon-o-shopping-bag')
+                    ->description('Anda dapat melihat rincian item pesanan dan mengupdate keterangan / notes di sini.')
+                    ->schema([
+                        \Filament\Forms\Components\Repeater::make('invoiceProducts')
+                            ->relationship('invoiceProducts')
+                            ->label('')
+                            ->addable(false)
+                            ->deletable(false)
+                            ->reorderable(false)
+                            ->collapsible()
+                            ->itemLabel(fn (array $state): ?string => $state['product_name'] ?? 'Item')
+                            ->schema([
+                                \Filament\Forms\Components\Grid::make(12)->schema([
+                                    \Filament\Forms\Components\Placeholder::make('product_info')
+                                        ->label('Item / Produk')
+                                        ->content(function (\Filament\Forms\Get $get) {
+                                            $name = $get('product_name') ?? 'Item';
+                                            $p = (float)$get('panjang');
+                                            $l = (float)$get('lebar');
+                                            $dims = ($p > 0 && $l > 0) ? " ({$p}m x {$l}m)" : "";
+                                            return $name . $dims;
+                                        })
+                                        ->columnSpan(5),
+
+                                    \Filament\Forms\Components\Placeholder::make('qty_info')
+                                        ->label('Qty')
+                                        ->content(function (\Filament\Forms\Get $get) {
+                                            return $get('quantity') ?? '0';
+                                        })
+                                        ->columnSpan(1),
+
+                                    \Filament\Forms\Components\Placeholder::make('price_info')
+                                        ->label('Total Harga')
+                                        ->content(function (\Filament\Forms\Get $get) {
+                                            $price = $get('total_price') ?? 0;
+                                            return 'Rp ' . number_format((float)$price, 0, ',', '.');
+                                        })
+                                        ->columnSpan(2),
+
+                                    \Filament\Forms\Components\TextInput::make('keterangan')
+                                        ->label('Keterangan Tambahan')
+                                        ->placeholder('Kosong')
+                                        ->columnSpan(4),
+                                ])
+                            ])
+                    ])
+                    ->collapsible(),
+                    ]), // Tutup Grid Kiri
+
+                        Grid::make(1)
+                            ->columnSpan(['sm' => 12, 'md' => 4])
+                            ->schema([
+                                Section::make('Informasi Invoice')
+                                    ->icon('heroicon-o-document-text')
+                                    ->schema([
+                                        \Filament\Forms\Components\Placeholder::make('grand_total_display')
+                                            ->label('TOTAL TAGIHAN')
+                                            ->content(function ($record) {
+                                                if (!$record) return '-';
+                                                $formatted = number_format((float)$record->grand_total, 0, ',', '.');
+                                                return new \Illuminate\Support\HtmlString('
+                                                    <div style="font-size: 2.25rem; font-weight: 900; color: #16a34a; line-height: 1.1;">
+                                                        <span style="font-size: 1.25rem; font-weight: 600;">Rp</span> ' . $formatted . '
+                                                    </div>
+                                                ');
+                                            })
+                                            ->columnSpanFull(),
+
+                                        \Filament\Forms\Components\Placeholder::make('invoice_number_display')
+                                            ->label('Nomor Invoice')
+                                            ->content(fn ($record) => $record?->invoice_number ?? '-')
+                                            ->columnSpanFull(),
+
+                                        \Filament\Forms\Components\Placeholder::make('due_date_display')
+                                            ->label('Jatuh Tempo')
+                                            ->content(function ($record) {
+                                                if (!$record || !$record->due_date) return '-';
+                                                
+                                                $date = \Carbon\Carbon::parse($record->due_date);
+                                                $isPassed = $date->isPast() && !$date->isToday();
+                                                $isUnpaid = $record->status === 'unpaid';
+                                                
+                                                $text = $date->translatedFormat('d F Y');
+                                                if ($isPassed && $isUnpaid) {
+                                                    return new \Illuminate\Support\HtmlString('<span style="color: red; font-weight: bold;">' . $text . ' (Terlewat)</span>');
+                                                }
+                                                return $text;
+                                            })
+                                            ->columnSpanFull(),
+
+                                        \Filament\Forms\Components\Placeholder::make('customer_name_display')
+                                            ->label('Nama Customer')
+                                            ->content(fn ($record) => $record?->name_customer ?? '-')
+                                            ->columnSpanFull(),
+
+                                        \Filament\Forms\Components\Placeholder::make('customer_phone_display')
+                                            ->label('Nomor WhatsApp')
+                                            ->content(fn ($record) => $record?->customer_phone ?? '-')
+                                            ->columnSpanFull(),
+
+                                        \Filament\Forms\Components\Placeholder::make('customer_email_display')
+                                            ->label('Email Customer')
+                                            ->content(fn ($record) => $record?->customer_email ?? '-')
+                                            ->columnSpanFull(),
+                                    ])
+                            ]), // Tutup Grid Kanan
+                    ]) // Tutup Grid Utama
             ]);
     }
 

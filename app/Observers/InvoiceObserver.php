@@ -47,12 +47,26 @@ class InvoiceObserver
     }
 
     public function creating(Invoice $invoice) {
-        $latest = Invoice::latest()->first();
+        $latest = Invoice::latest('sequence_number')->first();
         $invoice->sequence_number = $latest ? $latest->sequence_number + 1 : 1;
         
-        // Format: INV-{sequence_number}{tanggal}{bulan}{tahun}
-        $invoice->invoice_number = 'INV-' . 
-            str_pad($invoice->sequence_number, 3, '0', STR_PAD_LEFT) . 
-            now()->format('dmy');
+        if (empty($invoice->invoice_number)) {
+            $datePart = $invoice->created_at ? clone $invoice->created_at : now()->timezone('Asia/Jakarta');
+            $datePartFormat = $datePart->format('my');
+            
+            $pattern = 'INV-___' . $datePartFormat;
+            
+            $lastInvoiceThisMonth = Invoice::where('invoice_number', 'LIKE', $pattern)
+                ->orderByDesc('invoice_number')
+                ->first();
+
+            if (!$lastInvoiceThisMonth) {
+                $seq = 1;
+            } else {
+                $seq = ((int) substr($lastInvoiceThisMonth->invoice_number, 4, 3)) + 1;
+            }
+
+            $invoice->invoice_number = 'INV-' . str_pad($seq, 3, '0', STR_PAD_LEFT) . $datePartFormat;
+        }
     }
 }

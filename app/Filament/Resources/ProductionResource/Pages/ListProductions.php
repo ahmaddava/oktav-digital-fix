@@ -4,9 +4,11 @@ namespace App\Filament\Resources\ProductionResource\Pages;
 
 use Filament\Resources\Pages\ListRecords;
 use App\Filament\Resources\ProductionResource;
+use App\Filament\Resources\MachineResource;
 use App\Filament\Resources\ProductionResource\Widgets\ProductionFilterWidget;
 use App\Filament\Resources\ProductionResource\Widgets\ProductionStatsWidget;
 use Filament\Actions\CreateAction;
+use Filament\Actions\Action;
 use Filament\Resources\Components\Tab;
 use Illuminate\Database\Eloquent\Builder;
 use App\Models\Production;
@@ -22,9 +24,21 @@ class ListProductions extends ListRecords
         ];
     }
     
-    protected function getActions(): array
+    protected function getHeaderActions(): array
     {
         return [
+            Action::make('manage_machines')
+                ->label('Kelola Mesin')
+                ->icon('heroicon-o-cog-6-tooth')
+                ->url(MachineResource::getUrl('index'))
+                ->color('info'),
+
+            Action::make('manage_counters')
+                ->label('Pengaturan Counter')
+                ->icon('heroicon-o-adjustments-horizontal')
+                ->url(ProductionResource::getUrl('counter-manager'))
+                ->color('warning'),
+
             CreateAction::make()
                 ->label('Buat Produksi Baru')
                 ->icon('heroicon-o-plus'),

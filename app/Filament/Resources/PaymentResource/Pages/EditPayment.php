@@ -25,10 +25,11 @@ class EditPayment extends EditRecord
             Actions\ViewAction::make()
                 ->label('View Details'),
                 
-            Actions\Action::make('view_invoice')
-                ->label('View Invoice')
-                ->icon('heroicon-o-document-text')
-                ->url(fn () => InvoiceResource::getUrl('view', ['record' => $this->record]))
+            Actions\Action::make('print_invoice')
+                ->label('Print Invoice')
+                ->icon('heroicon-o-printer')
+                ->url(fn () => route('invoices.print', $this->record))
+                ->openUrlInNewTab()
                 ->color('info'),
 
             Actions\DeleteAction::make()

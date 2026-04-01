@@ -22,7 +22,25 @@ class UserResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-users'; // Ganti ikon jika diinginkan
 
-    protected static ?string $navigationGroup = 'Admin'; // Kelompokkan di sidebar
+    public static function getNavigationLabel(): string
+    {
+        return __('Pengguna');
+    }
+
+    public static function getNavigationGroup(): ?string
+    {
+        return __('Admin');
+    }
+
+    public static function getModelLabel(): string
+    {
+        return __('Pengguna');
+    }
+
+    public static function getPluralModelLabel(): string
+    {
+        return __('Pengguna');
+    }
 
     // --- Metode Otorisasi Ditambahkan ---
 

@@ -9,6 +9,7 @@ use Filament\Actions\Action;
 use Filament\Actions\Concerns\InteractsWithActions;
 use Filament\Actions\Contracts\HasActions;
 use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Grid;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -16,17 +17,20 @@ use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
 use Filament\Pages\Page;
 use Filament\Notifications\Notification;
+use Livewire\WithPagination;
 
 class FinancialReport extends Page implements HasForms, HasActions
 {
     use InteractsWithForms;
     use InteractsWithActions;
+    use WithPagination;
 
     protected static ?string $navigationIcon = 'heroicon-o-chart-bar-square';
     protected static ?string $navigationGroup = 'Reports';
     protected static string $view = 'filament.pages.financial-report';
 
-    public ?string $selectedDate = null;
+    public ?string $startDate = null;
+    public ?string $endDate = null;
     public float $totalIncome = 0;
     public float $totalExpense = 0;
     public float $totalReceivables = 0;
@@ -38,7 +42,8 @@ class FinancialReport extends Page implements HasForms, HasActions
 
     public function mount(): void
     {
-        $this->selectedDate = now()->startOfMonth()->format('Y-m-d');
+        $this->startDate = now()->startOfMonth()->format('Y-m-d');
+        $this->endDate = now()->endOfMonth()->format('Y-m-d');
         $this->calculateStats();
     }
 
@@ -99,7 +104,8 @@ class FinancialReport extends Page implements HasForms, HasActions
                 ->icon('heroicon-o-document-arrow-down')
                 ->color('success')
                 ->url(fn(): string => route('export.financial-report', [
-                    'date' => $this->selectedDate
+                    'start_date' => $this->startDate,
+                    'end_date' => $this->endDate,
                 ]), shouldOpenInNewTab: true),
         ];
     }
@@ -107,39 +113,52 @@ class FinancialReport extends Page implements HasForms, HasActions
     protected function getFormSchema(): array
     {
         return [
-            DatePicker::make('selectedDate')
-                ->label('Pilih Bulan')
-                ->displayFormat('F Y')
-                ->format('Y-m-d')
-                ->native(false)
-                ->closeOnDateSelection()
-                ->default(now()->startOfMonth())
-                ->live(),
+            Grid::make(2)->schema([
+                DatePicker::make('startDate')
+                    ->label('Tanggal Mulai')
+                    ->displayFormat('d F Y')
+                    ->format('Y-m-d')
+                    ->native(false)
+                    ->closeOnDateSelection()
+                    ->default(now()->startOfMonth())
+                    ->live(),
+                DatePicker::make('endDate')
+                    ->label('Tanggal Akhir')
+                    ->displayFormat('d F Y')
+                    ->format('Y-m-d')
+                    ->native(false)
+                    ->closeOnDateSelection()
+                    ->default(now()->endOfMonth())
+                    ->live(),
+            ]),
         ];
     }
 
     public function updated($propertyName): void
     {
-        if ($propertyName === 'selectedDate') {
+        if (in_array($propertyName, ['startDate', 'endDate', 'incomePerPage', 'expensePerPage'])) {
+            if (in_array($propertyName, ['startDate', 'endDate'])) {
+                $this->resetPage('incomePage');
+                $this->resetPage('expensePage');
+            }
             $this->calculateStats();
         }
     }
 
     public function calculateStats(): void
     {
-        $date = Carbon::parse($this->selectedDate);
-        $year = $date->year;
-        $month = $date->month;
+        if (!$this->startDate || !$this->endDate) return;
+
+        $start = Carbon::parse($this->startDate)->startOfDay();
+        $end = Carbon::parse($this->endDate)->endOfDay();
 
         // Query untuk income dari invoice yang sudah dibayar
         $incomeQuery = Invoice::query()
             ->where('status', 'paid')
-            ->whereYear('updated_at', $year)
-            ->whereMonth('updated_at', $month);
+            ->whereBetween('updated_at', [$start, $end]);
 
         $expenseQuery = Expense::query()
-            ->whereYear('expense_date', $year)
-            ->whereMonth('expense_date', $month);
+            ->whereBetween('expense_date', [$start, $end]);
 
         $this->totalIncome = $incomeQuery->sum('grand_total');
         $this->totalExpense = $expenseQuery->sum('amount');

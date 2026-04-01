@@ -15,8 +15,25 @@ class ProductionItemResource extends Resource
 {
     protected static ?string $model = ProductionItem::class;
     protected static ?string $navigationIcon = 'heroicon-o-cube';
-    protected static ?string $navigationGroup = 'Kalkulasi Harga';
-    protected static ?string $navigationLabel = 'Item Produksi';
+    public static function getNavigationLabel(): string
+    {
+        return __('Item Produksi');
+    }
+
+    public static function getNavigationGroup(): ?string
+    {
+        return __('Kalkulasi Harga');
+    }
+
+    public static function getModelLabel(): string
+    {
+        return __('Item Produksi');
+    }
+
+    public static function getPluralModelLabel(): string
+    {
+        return __('Item Produksi');
+    }
     protected static ?string $pluralModelLabel = 'Item Produksi';
 
     public static function form(Form $form): Form

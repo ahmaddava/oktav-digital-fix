@@ -16,7 +16,8 @@ class InvoiceChart extends ChartWidget
 
     protected static ?string $heading = 'Pendapatan vs Pengeluaran';
     protected static ?string $maxHeight = '300px';
-    protected static ?int $sort = 2;
+    protected static ?int $sort = 4;
+    protected int | string | array $columnSpan = 1;
 
     protected function getData(): array
     {

@@ -5,6 +5,9 @@ namespace App\Filament\Pages;
 use App\Filament\Widgets\InvoiceChart;
 use App\Filament\Widgets\LowStockProducts;
 use App\Filament\Widgets\StatsOverview;
+use App\Filament\Widgets\LatestProduction;
+use App\Filament\Widgets\ProductionOverview;
+use App\Filament\Widgets\LatestInvoices;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Form;
@@ -15,8 +18,10 @@ class Dashboard extends BaseDashboard
 {
     use HasFiltersForm;
 
+    protected static ?int $sort = 2;
+    protected int | string | array $columns = 2;
+
     protected static ?string $navigationIcon = 'heroicon-o-home';
-    protected static string $view = 'filament.pages.dashboard';
 
     public function filtersForm(Form $form): Form
     {
@@ -60,30 +65,28 @@ class Dashboard extends BaseDashboard
         return $years;
     }
 
-    protected function getHeaderWidgets(): array
+    public function getWidgets(): array
     {
         return [
+            LatestProduction::class,
+            LowStockProducts::class,
             StatsOverview::class,
+            ProductionOverview::class,
             InvoiceChart::class,
+            LatestInvoices::class,
         ];
     }
 
     protected function getFooterWidgets(): array
     {
         return [
-            LowStockProducts::class,
+            // LowStockProducts moved to main grid
         ];
     }
 
     public function getColumns(): int | array
     {
-        return [
-            'sm' => 1,
-            'md' => 2,
-            'lg' => 3,
-            'xl' => 3,
-            '2xl' => 4,
-        ];
+        return 2;
     }
 
     protected function getViewData(): array

@@ -26,7 +26,23 @@ Route::middleware([
 ]);
 Route::middleware([
     'web',
-    'auth:sanctum',
     'auth',
-    'permission:invoice.create',
-])->group(function () {});
+])->group(function () {
+    Route::get('/artwork/view/{filename}', function ($filename) {
+        $path = storage_path('app/public/artwork-invoices/' . $filename);
+        
+        if (!file_exists($path)) {
+            abort(404, 'File artwork tidak ditemukan.');
+        }
+        return response()->file($path, [
+            'Content-Disposition' => 'inline; filename="' . $filename . '"',
+        ]);
+    })->name('artwork.view');
+
+    Route::get('/language/{locale}', function ($locale) {
+        if (in_array($locale, ['en', 'id'])) {
+            session()->put('locale', $locale);
+        }
+        return redirect()->back();
+    })->name('language.switch');
+});

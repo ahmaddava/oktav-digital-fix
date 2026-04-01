@@ -21,6 +21,7 @@ class Production extends Model
     protected $fillable = [
         'invoice_id',
         'machine_type',
+        'machine_id',
         'status',
         'failed_prints',
         'total_clicks',
@@ -29,10 +30,7 @@ class Production extends Model
         'is_adjustment',
         'adjustment_value',
         'completed_at',
-        'started_at', // New: Timestamp for when production starts
-        'deadline', // New: Deadline for the production
         'started_at',
-        'completed_at',
     ];
 
     protected $casts = [
@@ -43,6 +41,28 @@ class Production extends Model
     public function invoice(): BelongsTo
     {
         return $this->belongsTo(Invoice::class)->withDefault();
+    }
+
+    public function machine(): BelongsTo
+    {
+        return $this->belongsTo(Machine::class)->withDefault();
+    }
+
+    /**
+     * Get production progress based on invoice item statuses.
+     * Returns something like "2/4 Selesai"
+     */
+    public function getProgressAttribute(): string
+    {
+        if (!$this->invoice || !$this->invoice->invoiceProducts) {
+            return '0/0';
+        }
+
+        $items = $this->invoice->invoiceProducts;
+        $total = $items->count();
+        $completed = $items->where('status', 'completed')->count();
+
+        return "{$completed}/{$total}";
     }
 
     protected static function booted()

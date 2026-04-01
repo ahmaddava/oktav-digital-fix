@@ -2,14 +2,15 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Relations\Pivot;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class InvoiceProduct extends Pivot
+class InvoiceProduct extends Model
 {
-    // Menggunakan class Pivot karena ini adalah model untuk tabel pivot
+    // Menggunakan class Model karena ini adalah model mandiri untuk tabel pivot
     protected $table = 'invoice_product';
 
-    public $timestamps = false; // Biasanya tabel pivot tidak butuh timestamps
+    public $timestamps = true; // Tabel ini sekarang menggunakan timestamps
 
     protected $fillable = [
         'invoice_id',
@@ -19,7 +20,22 @@ class InvoiceProduct extends Pivot
         'total_price',
         'sort',
         'product_name',
+        'status',
+        'keterangan',
+        'item_type',
+        'panjang',
+        'lebar',
+        'machine_id',
+        'file_path',
     ];
+
+    /**
+     * ✅ RELASI DARI PIVOT KE INVOICE
+     */
+    public function invoice()
+    {
+        return $this->belongsTo(Invoice::class);
+    }
 
     /**
      * ✅ RELASI DARI PIVOT KE PRODUCT
@@ -28,5 +44,14 @@ class InvoiceProduct extends Pivot
     public function product()
     {
         return $this->belongsTo(Product::class);
+    }
+
+    /**
+     * ✅ RELASI DARI PIVOT KE MACHINE
+     * Satu item pivot dikerjakan di satu Machine.
+     */
+    public function machine()
+    {
+        return $this->belongsTo(Machine::class);
     }
 }

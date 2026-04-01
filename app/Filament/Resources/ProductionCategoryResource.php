@@ -14,8 +14,25 @@ class ProductionCategoryResource extends Resource
 {
     protected static ?string $model = ProductionCategory::class;
     protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
-    protected static ?string $navigationGroup = 'Kalkulasi Harga';
-    protected static ?string $navigationLabel = 'Kategori Produksi';
+    public static function getNavigationLabel(): string
+    {
+        return __('Kategori Produksi');
+    }
+
+    public static function getNavigationGroup(): ?string
+    {
+        return __('Kalkulasi Harga');
+    }
+
+    public static function getModelLabel(): string
+    {
+        return __('Kategori Produksi');
+    }
+
+    public static function getPluralModelLabel(): string
+    {
+        return __('Kategori Produksi');
+    }
     protected static ?string $pluralModelLabel = 'Kategori Produksi';
 
     public static function form(Form $form): Form

@@ -19,6 +19,9 @@ use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
 use Filament\Navigation\MenuItem;
+use App\Http\Middleware\SetLocaleMiddleware;
+use Filament\View\PanelsRenderHook;
+use Illuminate\Support\Facades\Blade;
 
 class AdminPanelProvider extends PanelProvider
 {
@@ -28,6 +31,7 @@ class AdminPanelProvider extends PanelProvider
             ->default()
             ->id('admin')
             ->path('admin')
+            ->spa()
             ->login()
             ->colors([
                 'primary' => Color::Amber,
@@ -35,7 +39,7 @@ class AdminPanelProvider extends PanelProvider
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\\Filament\\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\\Filament\\Pages')
             ->pages([
-                Pages\Dashboard::class,
+                \App\Filament\Pages\Dashboard::class,
                 \App\Filament\Pages\ProductionCalculator::class,
                 \App\Filament\Pages\EditPassword::class,
             ])
@@ -53,8 +57,7 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->discoverWidgets(in: app_path('Filament/Widgets'), for: 'App\\Filament\\Widgets')
             ->widgets([
-                Widgets\AccountWidget::class,
-                Widgets\FilamentInfoWidget::class,
+                // Widgets are now managed by the custom Dashboard page
             ])
             ->middleware([
                 EncryptCookies::class,
@@ -66,7 +69,23 @@ class AdminPanelProvider extends PanelProvider
                 SubstituteBindings::class,
                 DisableBladeIconComponents::class,
                 DispatchServingFilamentEvent::class,
+                SetLocaleMiddleware::class,
             ])
+            ->renderHook(
+                PanelsRenderHook::USER_MENU_BEFORE,
+                fn (): string => Blade::render('
+                    <div class="flex items-center gap-x-2 px-3 py-1.5 rounded-full bg-gray-100/50 dark:bg-white/5 border border-gray-200 dark:border-white/10 mx-4">
+                        <a href="{{ route(\'language.switch\', [\'locale\' => \'id\']) }}" 
+                           class="px-2 py-0.5 rounded-full text-xs font-bold transition-all {{ app()->getLocale() === \'id\' ? \'bg-primary-500 text-white shadow-sm\' : \'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200\' }}">
+                            ID
+                        </a>
+                        <a href="{{ route(\'language.switch\', [\'locale\' => \'en\']) }}" 
+                           class="px-2 py-0.5 rounded-full text-xs font-bold transition-all {{ app()->getLocale() === \'en\' ? \'bg-primary-500 text-white shadow-sm\' : \'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200\' }}">
+                            EN
+                        </a>
+                    </div>
+                '),
+            )
             ->pages([
                 Dashboard::class,
             ])

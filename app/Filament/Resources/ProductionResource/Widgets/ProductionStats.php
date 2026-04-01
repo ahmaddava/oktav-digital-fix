@@ -5,6 +5,7 @@ namespace App\Filament\Resources\ProductionResource\Widgets;
 use Filament\Widgets\StatsOverviewWidget;
 use Filament\Widgets\StatsOverviewWidget\Stat;
 use App\Models\Production;
+use App\Models\Machine;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -12,128 +13,93 @@ use Livewire\Attributes\On;
 
 class ProductionStats extends StatsOverviewWidget
 {
-    // Make stats refresh much more frequently
     protected function getPollingInterval(): ?string
     {
-        return '5s'; // Poll every 5 seconds for faster updates
+        return '5s';
     }
 
-    // Modern event handling using Livewire attributes
     #[On('refresh-stats')]
     public function handleRefreshEvent(): void
     {
-        Log::info('ProductionStats received refresh-stats event at ' . now()->format('H:i:s.u'));
         $this->refresh();
     }
 
     protected function getStats(): array
     {
         try {
-            // Log the start of the process with timestamp
-            Log::info('Getting production stats at ' . now()->format('H:i:s.u'));
-            
-            // Get filters or use current month
             $from = $this->filters['from'] ?? null;
             $until = $this->filters['until'] ?? null;
 
-            // Determine displayed periods
             $currentPeriod = $this->getDatePeriod($from, $until);
             $previousPeriod = $this->getPreviousPeriod($currentPeriod['start']);
 
-            // IMPORTANT: Get data directly without caching for immediate updates
-            Log::info('Querying database for current period stats');
-            $currentClickQuery = Production::whereBetween('created_at', [$currentPeriod['start'], $currentPeriod['end']]);
-            $currentClicks = $this->getAggregatedResults($currentClickQuery);
+            // Load all machines dynamically
+            $machines = Machine::all();
 
-            Log::info('Querying database for previous period stats');
-            $previousClickQuery = Production::whereBetween('created_at', [$previousPeriod['start'], $previousPeriod['end']]);
-            $previousClicks = $this->getAggregatedResults($previousClickQuery);
+            $stats = [];
 
-            // Constants for machine codes (ensuring consistency with model)
-            $MESIN_1 = 'mesin_1';
-            $MESIN_2 = 'mesin_2';
+            foreach ($machines as $machine) {
+                // Determine current status (Busy or Free)
+                // Look for items currently "started" on this machine
+                $activeItem = \App\Models\InvoiceProduct::where('machine_id', $machine->id)
+                    ->where('status', 'started')
+                    ->with(['invoice', 'product'])
+                    ->latest('id')
+                    ->first();
 
-            // Get clicks per machine
-            $mesin1Current = $currentClicks[$MESIN_1]['total_clicks'] ?? 0;
-            $mesin2Current = $currentClicks[$MESIN_2]['total_clicks'] ?? 0;
-            $mesin1Previous = $previousClicks[$MESIN_1]['total_clicks'] ?? 0;
-            $mesin2Previous = $previousClicks[$MESIN_2]['total_clicks'] ?? 0;
+                if ($activeItem) {
+                    $jobInfo = ($activeItem->product_name ?? $activeItem->product?->product_name) . ' (' . ($activeItem->invoice?->invoice_number ?? '-') . ')';
+                    $stats[] = Stat::make($machine->name, __('Sedang Digunakan'))
+                        ->description($jobInfo)
+                        ->color('warning')
+                        ->icon('heroicon-m-cog-8-tooth');
+                } else {
+                    $stats[] = Stat::make($machine->name, __('Tersedia / Free'))
+                        ->description(__('Mesin sedang tidak memproses item'))
+                        ->color('success')
+                        ->icon('heroicon-m-check-circle');
+                }
 
-            // Get counter values - important change: no caching for immediate update
-            Log::info('Getting counter totals directly from database');
-            $counterResults = DB::table('productions')
-                ->select('machine_type')
-                ->selectRaw('SUM(total_counter) as total_counter')
-                ->groupBy('machine_type')
-                ->get()
-                ->keyBy('machine_type')
-                ->mapWithKeys(fn ($item) => [
-                    $item->machine_type => $item->total_counter,
-                ])
-                ->toArray();
+                // If machine uses clicks, show click stats
+                if ($machine->use_clicks) {
+                    // Current period clicks
+                    $currentClicks = Production::where('machine_id', $machine->id)
+                        ->whereBetween('created_at', [$currentPeriod['start'], $currentPeriod['end']])
+                        ->sum('total_clicks');
 
-            $mesin1Counter = $counterResults[$MESIN_1] ?? 0;
-            $mesin2Counter = $counterResults[$MESIN_2] ?? 0;
+                    // Previous period clicks
+                    $previousClicks = Production::where('machine_id', $machine->id)
+                        ->whereBetween('created_at', [$previousPeriod['start'], $previousPeriod['end']])
+                        ->sum('total_clicks');
 
-            // Pre-compute descriptions
-            $mesin1Description = $this->getTrendDescription($mesin1Current, $mesin1Previous);
-            $mesin2Description = $this->getTrendDescription($mesin2Current, $mesin2Previous);
-            
-            // Log the results for debugging
-            Log::info("Stats calculated - M1: $mesin1Counter, M2: $mesin2Counter");
+                    $description = $this->getTrendDescription($currentClicks, $previousClicks);
 
-            return [
-                Stat::make('Clicks Mesin 1 - ' . $currentPeriod['label'], number_format($mesin1Current))
-                    ->description($mesin1Description)
-                    ->color($this->getTrendColor($mesin1Current, $mesin1Previous))
-                    ->icon($this->getTrendIcon($mesin1Current, $mesin1Previous)),
+                    $stats[] = Stat::make(__('Clicks') . ' ' . $machine->name, number_format($currentClicks))
+                        ->description($description)
+                        ->color($this->getTrendColor($currentClicks, $previousClicks))
+                        ->icon($this->getTrendIcon($currentClicks, $previousClicks));
 
-                Stat::make('Clicks Mesin 2 - ' . $currentPeriod['label'], number_format($mesin2Current))
-                    ->description($mesin2Description)
-                    ->color($this->getTrendColor($mesin2Current, $mesin2Previous))
-                    ->icon($this->getTrendIcon($mesin2Current, $mesin2Previous)),
+                    // Counter stats per machine
+                    $counter = DB::table('productions')
+                        ->where('machine_id', $machine->id)
+                        ->sum('total_counter');
 
-                Stat::make('Counter Mesin 1', number_format($mesin1Counter))
-                    ->description("Akumulasi semua counter mesin 1")
-                    ->color('warning')
-                    ->icon('heroicon-m-cpu-chip'),
+                    $stats[] = Stat::make(__('Total Counter') . ' ' . $machine->name, number_format($counter))
+                        ->description(__('Akumulasi counter mesin'))
+                        ->color('info')
+                        ->icon('heroicon-m-cpu-chip');
+                }
+            }
 
-                Stat::make('Counter Mesin 2', number_format($mesin2Counter))
-                    ->description("Akumulasi semua counter mesin 2")
-                    ->color('warning')
-                    ->icon('heroicon-m-cpu-chip'),
-            ];
+            return $stats;
         } catch (\Exception $e) {
-            // Log error for debugging
             Log::error('Error in ProductionStats::getStats: ' . $e->getMessage());
-            Log::error($e->getTraceAsString());
-            
-            // Return empty stats if error occurs
             return [
                 Stat::make('Error', 'Terjadi kesalahan saat memuat data')
                     ->color('danger')
                     ->icon('heroicon-m-exclamation-triangle'),
             ];
         }
-    }
-
-    private function getAggregatedResults($query): array
-    {
-        // Use more efficient query with DB facade
-        return $query
-            ->select('machine_type')
-            ->selectRaw('SUM(total_clicks) as total_clicks')
-            ->groupBy('machine_type')
-            ->get()
-            ->keyBy('machine_type')
-            ->mapWithKeys(function ($item) {
-                return [
-                    $item['machine_type'] => [
-                        'total_clicks' => $item['total_clicks'],
-                    ],
-                ];
-            })
-            ->toArray();
     }
 
     private function getDatePeriod($from, $until): array
@@ -162,7 +128,7 @@ class ProductionStats extends StatsOverviewWidget
         $difference = $current - $previous;
         $formattedDiff = number_format(abs($difference));
 
-        if ($previous === 0) {
+        if ($previous === 0 || $previous == 0) {
             return "Peningkatan {$formattedDiff} (100%) dari bulan sebelumnya";
         }
 
@@ -179,8 +145,8 @@ class ProductionStats extends StatsOverviewWidget
 
     private function getTrendIcon($current, $previous): string
     {
-        return $current >= $previous 
-            ? 'heroicon-m-arrow-trending-up' 
+        return $current >= $previous
+            ? 'heroicon-m-arrow-trending-up'
             : 'heroicon-m-arrow-trending-down';
     }
 

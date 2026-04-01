@@ -28,13 +28,25 @@ class CustomerResource extends Resource implements HasShieldPermissions
 
     protected static ?string $navigationIcon = 'heroicon-o-user-group';
 
-    protected static ?string $navigationLabel = 'Customers';
+    public static function getNavigationLabel(): string
+    {
+        return __('Pelanggan');
+    }
 
-    protected static ?string $modelLabel = 'Customers';
+    public static function getNavigationGroup(): ?string
+    {
+        return __('Manajemen');
+    }
 
-    protected static ?string $pluralModelLabel = 'Customers';
+    public static function getModelLabel(): string
+    {
+        return __('Pelanggan');
+    }
 
-    protected static ?string $navigationGroup = 'Management';
+    public static function getPluralModelLabel(): string
+    {
+        return __('Pelanggan');
+    }
 
     public static function form(Form $form): Form
     {

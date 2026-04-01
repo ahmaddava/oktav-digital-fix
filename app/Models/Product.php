@@ -83,12 +83,27 @@ class Product extends Model
     // Define the method to get price based on quantity
     public function getPriceByQuantity($quantity)
     {
-        // Fetch the price rule based on quantity
-        $priceRule = $this->prices()->where('min_quantity', '<=', $quantity)
-                                     ->orderByDesc('min_quantity') // Select the highest min_quantity that is <= quantity
-                                     ->first();
+        // 1. Ambil aturan harga yang min_quantity nya <= quantity yang diinput (paling mendekati)
+        $priceRule = $this->prices()
+            ->where('min_quantity', '<=', $quantity)
+            ->orderByDesc('min_quantity')
+            ->first();
 
-        // Return the price if a rule is found, otherwise return the default price
-        return $priceRule ? $priceRule->price : $this->price;
+        if ($priceRule) {
+            return $priceRule->price;
+        }
+
+        // 2. Jika tidak ditemukan (quantity terlalu kecil < semua tier), 
+        // ambil harga dari min_quantity PALING RENDAH (biasanya harga eceran tertinggi)
+        $lowestMinQtyRule = $this->prices()
+            ->orderBy('min_quantity', 'asc')
+            ->first();
+
+        if ($lowestMinQtyRule) {
+            return $lowestMinQtyRule->price;
+        }
+
+        // 3. Fallback terakhir ke harga default produk jika tidak ada varian sama sekali
+        return $this->price;
     }
 }
