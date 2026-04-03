@@ -163,26 +163,33 @@ class InvoiceResource extends Resource implements HasShieldPermissions
                 ->get();
         }
 
-        // Generate invoice number dengan logika yang benar (INV-{urutan}{bulan}{tahun})
+        // Logic for ODP/INV/YY/MM/000 format
         $today = now()->timezone('Asia/Jakarta');
-        $datePart = $today->format('my');
+        $year = $today->format('y');
+        $month = $today->format('n'); // 1-12
 
-        $todayPattern = 'INV-___' . $datePart;
+        $romanMonths = [
+            1 => 'I', 2 => 'II', 3 => 'III', 4 => 'IV', 5 => 'V', 6 => 'VI',
+            7 => 'VII', 8 => 'VIII', 9 => 'IX', 10 => 'X', 11 => 'XI', 12 => 'XII'
+        ];
+        $romanMonth = $romanMonths[$month] ?? 'I';
 
-        $lastInvoiceThisMonth = Invoice::where('invoice_number', 'LIKE', $todayPattern)
-            ->orderByDesc('invoice_number')
+        // Pattern for current month lookup: ODP/INV/26/IV/%
+        $pattern = "ODP/INV/{$year}/{$romanMonth}/%";
+
+        $lastInvoice = Invoice::where('invoice_number', 'LIKE', $pattern)
+            ->orderByRaw('CAST(SUBSTRING_INDEX(invoice_number, "/", -1) AS UNSIGNED) DESC')
             ->first();
 
-        if (!$lastInvoiceThisMonth) {
+        if (!$lastInvoice) {
             $sequenceNumber = 1;
         } else {
-            $existingInvoiceNumber = $lastInvoiceThisMonth->invoice_number;
-            $sequenceStr = substr($existingInvoiceNumber, 4, 3);
-            $lastSequence = (int) $sequenceStr;
+            $parts = explode('/', $lastInvoice->invoice_number);
+            $lastSequence = (int) end($parts);
             $sequenceNumber = $lastSequence + 1;
         }
 
-        $invoiceNumber = 'INV-' . str_pad($sequenceNumber, 3, '0', STR_PAD_LEFT) . $datePart;
+        $invoiceNumber = sprintf("ODP/INV/%s/%s/%s", $year, $romanMonth, str_pad($sequenceNumber, 3, '0', STR_PAD_LEFT));
 
         return $form
             ->schema([
@@ -295,6 +302,16 @@ class InvoiceResource extends Resource implements HasShieldPermissions
                                     ->unique(ignoreRecord: true)
                                     ->dehydrated()
                                     ->default($invoiceNumber)
+                                    ->disabled(fn (Get $get) => !$get('is_editing_invoice_number'))
+                                    ->suffixAction(
+                                        FormAction::make('unlockInvoiceNumber')
+                                            ->icon('heroicon-m-lock-closed')
+                                            ->tooltip('Buka kunci untuk mengedit')
+                                            ->action(function (Set $set, $state) {
+                                                $set('is_editing_invoice_number', true);
+                                            })
+                                            ->visible(fn (Get $get) => !$get('is_editing_invoice_number'))
+                                    )
                                     ->columnSpan(1),
 
                                 \Filament\Forms\Components\DatePicker::make('created_at')
@@ -364,7 +381,9 @@ class InvoiceResource extends Resource implements HasShieldPermissions
 
                                         Select::make('product_id')
                                             ->label('Pilih Produk')
-                                            ->options(Product::all()->pluck('product_name', 'id'))
+                                            ->options(Product::query()->orderBy('product_name')->get()->mapWithKeys(fn ($product) => [
+                                                $product->id => "{$product->product_name} (" . ($product->type === 'jasa' ? 'Jasa' : 'Digital Print') . ")"
+                                            ]))
                                             ->searchable()
                                             ->live()
                                             ->reactive()

@@ -22,7 +22,7 @@ class ReportExportController extends Controller
 
         $income = Invoice::query()
             ->where('status', 'paid')
-            ->whereBetween('updated_at', [$start, $end])
+            ->whereBetween('created_at', [$start, $end])
             ->get();
 
         $expenses = Expense::query()

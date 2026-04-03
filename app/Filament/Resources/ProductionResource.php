@@ -62,7 +62,7 @@ class ProductionResource extends Resource
                 Forms\Components\Section::make('Informasi Invoice')
                     ->description('Pilih invoice yang akan diproses produksi dan lihat lampirannya.')
                     ->schema([
-                        Forms\Components\Grid::make(2)
+                        Forms\Components\Grid::make(1)
                             ->schema([
                                 Forms\Components\Select::make('invoice_id')
                                     ->label('Invoice')
@@ -84,32 +84,6 @@ class ProductionResource extends Resource
                                                 $set('notes_invoice', $invoice->notes_invoice);
                                             }
                                         }
-                                    }),
-
-                                Forms\Components\Placeholder::make('invoice_attachment')
-                                    ->label('Lampiran Invoice')
-                                    ->content(function (callable $get) {
-                                        $invoiceId = $get('invoice_id');
-                                        if (!$invoiceId) {
-                                            return 'Pilih invoice untuk melihat lampiran';
-                                        }
-                                        $invoice = Invoice::find($invoiceId);
-                                        if (!$invoice || !$invoice->attachment_path) {
-                                            return 'Tidak ada lampiran untuk invoice ini';
-                                        }
-                                        $url = Storage::url($invoice->attachment_path);
-                                        $filename = basename($invoice->attachment_path);
-
-                                        return new HtmlString(
-                                            "<div class='flex items-center p-2 bg-gray-50 dark:bg-gray-900 rounded-lg'>
-                                                <svg class='w-5 h-5 mr-2 text-gray-500' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
-                                                    <path stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z'></path>
-                                                </svg>
-                                                <a href='{$url}' target='_blank' class='text-blue-600 hover:underline dark:text-blue-400'>
-                                                    {$filename}
-                                                </a>
-                                            </div>"
-                                        );
                                     }),
                             ]),
                     ])
@@ -167,60 +141,22 @@ class ProductionResource extends Resource
                 // Bagian Detail Produksi
                 Forms\Components\Section::make('Detail Produksi')
                     ->schema([
-                        Forms\Components\Grid::make(3)
+                        Forms\Components\Grid::make(2)
                             ->schema([
-                                Forms\Components\Select::make('machine_id')
-                                    ->label('Mesin')
-                                    ->options(Machine::pluck('name', 'id'))
-                                    ->default(Machine::first()?->id)
-                                    ->required()
-                                    ->reactive(),
-
                                 Forms\Components\TextInput::make('failed_prints')
                                     ->label('Jumlah Gagal Cetak')
                                     ->numeric()
                                     ->default(0)
                                     ->required(),
 
-                                Forms\Components\Radio::make('status')
-                                    ->label('Status')
-                                    ->options([
-                                        'pending' => 'Pending',
-                                        'started' => 'Mulai Produksi',
-                                        'completed' => 'Selesai',
-                                    ])
-                                    ->default('pending')
-                                    ->inline()
-                                    ->reactive()
-                                    ->afterStateUpdated(function (Forms\Set $set, $state) {
-                                        if ($state === 'completed') {
-                                            $set('completed_at', now());
-                                        } else {
-                                            $set('completed_at', null);
-                                        }
-
-                                        if ($state === 'started') {
-                                            // Set started_at to current date only, if not already set
-                                            $set('started_at', function (Forms\Get $get) {
-                                                return $get('started_at') ?? now()->toDateString();
-                                            });
-                                        } else {
-                                            // You might want to clear started_at if status changes from started
-                                            // This depends on your business logic. For now, we'll keep it if it was started.
-                                        }
-                                    }),
+                                Forms\Components\Textarea::make('notes_invoice')
+                                    ->label('Catatan')
+                                    ->rows(1),
                             ]),
-                        Forms\Components\DatePicker::make('started_at')
-                            ->label('Mulai Produksi')
-                            ->hidden(fn(Forms\Get $get): bool => $get('status') !== 'started' && $get('status') !== 'completed')
-                            ->dehydrated(),
-                        Forms\Components\DateTimePicker::make('completed_at')
-                            ->label('Tanggal Selesai')
-                            ->hidden(fn(Forms\Get $get): bool => $get('status') !== 'completed')
-                            ->dehydrated(),
-                        Forms\Components\Textarea::make('notes_invoice')
-                            ->label('Catatan')
-                            ->columnSpanFull(),
+                        
+                        Forms\Components\Hidden::make('status')
+                            ->default('pending'),
+                        
                         Forms\Components\Hidden::make('is_adjustment')
                             ->default(0),
                     ])
@@ -228,66 +164,65 @@ class ProductionResource extends Resource
 
                 // Section untuk update status per-item
                 Forms\Components\Section::make('Status Item Produksi')
-                    ->description('Tandai item yang sudah selesai diproduksi.')
-                    ->schema([
-                        Forms\Components\Placeholder::make('item_status_list')
-                            ->label('')
-                            ->content(function (callable $get, ?Production $record) {
-                                if (!$record || !$record->invoice) {
-                                    $invoiceId = $get('invoice_id');
-                                    if (!$invoiceId) return 'Pilih invoice terlebih dahulu.';
-                                    $invoice = Invoice::with(['invoiceProducts.machine'])->find($invoiceId);
-                                    if (!$invoice || $invoice->invoiceProducts->isEmpty()) return 'Tidak ada item.';
-                                    $items = $invoice->invoiceProducts;
-                                } else {
-                                    $record->load(['invoice.invoiceProducts.machine']);
-                                    $items = $record->invoice->invoiceProducts;
-                                }
+                    ->description('Tanda pengerjaan untuk masing-masing barang.')
+                    ->schema(function (callable $get, ?Production $record) {
+                        if (!$record || !$record->invoice) {
+                            $invoiceId = $get('invoice_id');
+                            if (!$invoiceId) return [Forms\Components\Placeholder::make('no_invoice')->content('Pilih invoice terlebih dahulu.')];
+                            $invoice = Invoice::with(['invoiceProducts.machine'])->find($invoiceId);
+                            if (!$invoice || $invoice->invoiceProducts->isEmpty()) return [Forms\Components\Placeholder::make('no_items')->content('Tidak ada item.')];
+                            $items = $invoice->invoiceProducts;
+                        } else {
+                            $record->load(['invoice.invoiceProducts.machine']);
+                            $items = $record->invoice->invoiceProducts;
+                        }
 
-                                $total = $items->count();
-                                $completed = $items->where('status', 'completed')->count();
-                                $pct = $total > 0 ? round(($completed / $total) * 100) : 0;
+                        $fields = [];
+                        foreach ($items as $item) {
+                            $fields[] = Forms\Components\Grid::make(3)
+                                ->schema([
+                                    Forms\Components\Placeholder::make('info_' . $item->id)
+                                        ->label('Barang')
+                                        ->content(function() use ($item) {
+                                            $name = $item->product_name ?? 'Item';
+                                            $qty = $item->quantity ?? 0;
+                                            $artwork = "";
+                                            if ($item->file_path) {
+                                                $url = route('artwork.view', ['filename' => basename($item->file_path)]);
+                                                $artwork = "<br><a href='{$url}' target='_blank' style='color: #0288d1; font-weight: bold; font-size: 11px;'>&darr; Artwork</a>";
+                                            }
+                                            return new HtmlString("<span class='font-bold'>{$name}</span> — {$qty} unit{$artwork}");
+                                        }),
 
-                                $html = "<div class='space-y-2'>";
-                                $html .= "<div class='flex items-center gap-2 mb-3'>";
-                                $html .= "<div class='flex-1 h-2.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden'><div class='h-full rounded-full " . ($pct === 100 ? 'bg-green-500' : 'bg-blue-500') . "' style='width: {$pct}%'></div></div>";
-                                $html .= "<span class='text-sm font-semibold text-gray-700 dark:text-gray-300'>{$completed}/{$total} Selesai</span>";
-                                $html .= "</div>";
+                                    Forms\Components\ToggleButtons::make('item_' . $item->id . '_status')
+                                        ->label('Status')
+                                        ->options([
+                                            'pending' => 'Pending',
+                                            'started' => 'Proses',
+                                            'completed' => 'Selesai',
+                                        ])
+                                        ->icons([
+                                            'pending' => 'heroicon-o-clock',
+                                            'started' => 'heroicon-o-cog-6-tooth',
+                                            'completed' => 'heroicon-o-check-circle',
+                                        ])
+                                        ->colors([
+                                            'pending' => 'gray',
+                                            'started' => 'info',
+                                            'completed' => 'success',
+                                        ])
+                                        ->inline()
+                                        ->required(),
 
-                                foreach ($items as $item) {
-                                    $name = $item->product_name ?? 'Item';
-                                    $qty = $item->quantity ?? 0;
-                                    $status = $item->status ?? 'pending';
-                                    $machineName = $item->machine?->name ?? '<span class="text-gray-400 italic font-normal">Belum ditentukan</span>';
-                                    
-                                    $statusBadge = match($status) {
-                                        'completed' => '<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-800 dark:text-green-100">✓ Selesai</span>',
-                                        'started' => '<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-800 dark:text-blue-100">⚙ Proses</span>',
-                                        default => '<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300">⏳ Pending</span>',
-                                    };
-                                    $html .= "<div class='flex items-center justify-between p-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg'>";
-                                    $html .= "<div class='flex-1'>";
-                                    $html .= "<div class='font-medium text-gray-800 dark:text-gray-200'>{$name}</div>";
-                                    $html .= "<div class='text-xs text-secondary-500 font-semibold mt-1 flex items-center gap-1'><x-heroicon-o-cpu-chip class='w-3 h-3' /> Mesin: {$machineName}</div>";
-                                    $html .= "</div>";
-                                    $html .= "<div class='flex items-center gap-3'>";
-                                    
-                                    // Tampilkan link artwork jika ada
-                                    if ($item->file_path) {
-                                        $fileUrl = route('artwork.view', ['filename' => basename($item->file_path)]);
-                                        $html .= "<a href='{$fileUrl}' target='_blank' class='inline-flex items-center px-2 py-1 text-xs font-semibold text-primary-600 bg-primary-50 dark:bg-primary-900/30 dark:text-primary-400 rounded border border-primary-200 dark:border-primary-800 hover:bg-primary-100 transition-colors'>
-                                            <x-heroicon-o-document-arrow-down class='w-3 h-3 mr-1' /> File
-                                        </a>";
-                                    }
-
-                                    $html .= "<span class='bg-blue-100 dark:bg-blue-900 text-blue-800 dark:bg-blue-200 rounded-full px-3 py-1 text-sm font-medium'>{$qty} unit</span>";
-                                    $html .= $statusBadge;
-                                    $html .= "</div></div>";
-                                }
-                                $html .= "</div>";
-                                return new HtmlString($html);
-                            }),
-                    ])
+                                    Forms\Components\Select::make('item_' . $item->id . '_machine_id')
+                                        ->label('Mesin')
+                                        ->options(Machine::pluck('name', 'id'))
+                                        ->placeholder('Pilih Mesin (Opsional)')
+                                        ->searchable(),
+                                ]);
+                        }
+                        return $fields;
+                    })
                     ->columns(1),
             ]);
     }
@@ -452,9 +387,8 @@ class ProductionResource extends Resource
                                     Forms\Components\Select::make('machine_' . $item->id)
                                         ->label('Mesin')
                                         ->options(Machine::pluck('name', 'id'))
-                                        ->default($item->machine_id ?? $record->machine_id)
-                                        ->placeholder('Pilih Mesin')
-                                        ->required()
+                                        ->default($item->machine_id)
+                                        ->placeholder('Pilih Mesin (Opsional)')
                                         ->visible(fn(Get $get) => $get('item_' . $item->id) !== 'pending'),
                                     
                                     Forms\Components\Placeholder::make('file_' . $item->id)
@@ -554,8 +488,8 @@ class ProductionResource extends Resource
                                     Forms\Components\Select::make('machine_' . $item->id)
                                         ->label('Mesin')
                                         ->options(Machine::pluck('name', 'id'))
-                                        ->default($record->machine_id ?? Machine::first()?->id)
-                                        ->required()
+                                        ->default(null)
+                                        ->placeholder('Pilih Mesin (Opsional)')
                                         ->visible(fn(Get $get) => $get('item_' . $item->id) === 'started'),
 
                                     Forms\Components\Placeholder::make('file_' . $item->id)

@@ -155,7 +155,7 @@ class FinancialReport extends Page implements HasForms, HasActions
         // Query untuk income dari invoice yang sudah dibayar
         $incomeQuery = Invoice::query()
             ->where('status', 'paid')
-            ->whereBetween('updated_at', [$start, $end]);
+            ->whereBetween('created_at', [$start, $end]);
 
         $expenseQuery = Expense::query()
             ->whereBetween('expense_date', [$start, $end]);

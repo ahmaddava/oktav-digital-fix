@@ -38,7 +38,7 @@
     <tbody>
         @foreach ($income as $item)
             <tr>
-                <td>{{ $item->updated_at->format('d-m-Y') }}</td>
+                <td>{{ $item->created_at->format('d-m-Y') }}</td>
                 <td>{{ $item->invoice_number }}</td>
                 <td>{{ $item->name_customer }}</td>
                 <td>{{ $item->grand_total }}</td>

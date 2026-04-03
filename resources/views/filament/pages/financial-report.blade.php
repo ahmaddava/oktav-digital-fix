@@ -165,8 +165,8 @@
                 @php
                     $incomeData = \App\Models\Invoice::query()
                         ->where('status', 'paid')
-                        ->whereBetween('updated_at', [$start, $end])
-                        ->orderBy('updated_at', 'desc')
+                        ->whereBetween('created_at', [$start, $end])
+                        ->orderBy('created_at', 'desc')
                         ->paginate($this->incomePerPage, ['*'], 'incomePage');
                 @endphp
                 
@@ -185,7 +185,7 @@
                                 @foreach ($incomeData as $invoice)
                                     <tr>
                                         <td class="px-4 py-3 text-gray-600 dark:text-gray-400">
-                                            {{ \Carbon\Carbon::parse($invoice->updated_at)->format('d/m/Y') }}
+                                            {{ \Carbon\Carbon::parse($invoice->created_at)->format('d/m/Y') }}
                                         </td>
                                         <td class="px-4 py-3 font-medium text-gray-900 dark:text-white">
                                             {{ $invoice->invoice_number }}

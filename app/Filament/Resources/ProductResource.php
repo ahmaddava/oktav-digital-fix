@@ -161,6 +161,9 @@ class ProductResource extends Resource implements HasShieldPermissions
                 
                 TextColumn::make('price')
                     ->label('Harga')
+                    ->getStateUsing(function (Product $record) {
+                        return $record->prices()->orderBy('min_quantity', 'asc')->first()?->price ?? $record->price ?? 0;
+                    })
                     ->numeric()
                     ->prefix('Rp ')
                     ->sortable(),
@@ -192,7 +195,8 @@ class ProductResource extends Resource implements HasShieldPermissions
                 Tables\Actions\BulkActionGroup::make([
                     Tables\Actions\DeleteBulkAction::make(),
                 ]),
-            ]);
+            ])
+            ->modifyQueryUsing(fn ($query) => $query->with('prices'));
     }
 
     public static function getRelations(): array

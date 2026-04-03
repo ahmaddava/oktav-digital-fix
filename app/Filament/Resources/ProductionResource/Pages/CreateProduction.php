@@ -33,11 +33,25 @@ class CreateProduction extends CreateRecord
 
     protected function afterCreate(): void
     {
-        // Kurangi stok produk setelah produksi selesai
+        $data = $this->form->getState();
         $production = $this->record;
         $invoice = $production->invoice;
 
         if ($invoice && $invoice->exists) {
+            // Update individual item statuses and machines from form
+            foreach ($invoice->invoiceProducts as $item) {
+                $statusKey = 'item_' . $item->id . '_status';
+                $machineKey = 'item_' . $item->id . '_machine_id';
+
+                if (isset($data[$statusKey])) {
+                    $item->update([
+                        'status' => $data[$statusKey],
+                        'machine_id' => $data[$machineKey] ?? null,
+                    ]);
+                }
+            }
+
+            // Kurangi stok produk setelah produksi selesai
             foreach ($invoice->products as $product) {
                 if ($product->type === Product::TYPE_DIGITAL_PRINT) {
                     $product->stock -= $product->pivot->quantity;
