@@ -318,6 +318,122 @@
                     </div>
                 @endif
             </x-filament::section>
+
+            {{-- Piutang Table --}}
+            <x-filament::section>
+                <x-slot name="heading">
+                    <div class="flex items-center gap-2">
+                        <x-heroicon-s-clock class="h-5 w-5 text-amber-500" />
+                        <span>Piutang (Unpaid Invoices)</span>
+                    </div>
+                </x-slot>
+                <x-slot name="headerEnd">
+                    <div class="flex flex-wrap items-center gap-4">
+                        {{-- Search Input --}}
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs text-gray-500">Cari:</span>
+                            <input 
+                                type="text" 
+                                wire:model.live.debounce.500ms="receivableSearch" 
+                                placeholder="Nama Customer..."
+                                class="rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 text-xs py-1 px-2 focus:ring-amber-500 focus:border-amber-500 transition-colors"
+                            />
+                        </div>
+                        {{-- Per Page Select --}}
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs text-gray-500">Per halaman:</span>
+                            <select wire:model.live="receivablePerPage" class="rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 text-xs py-1 px-2">
+                                <option value="5">5</option>
+                                <option value="10">10</option>
+                                <option value="25">25</option>
+                                <option value="50">50</option>
+                            </select>
+                        </div>
+                    </div>
+                </x-slot>
+                
+                @php
+                    $receivableData = \App\Models\Invoice::query()
+                        ->where('status', 'unpaid')
+                        ->whereBetween('created_at', [$start, $end])
+                        ->when($this->receivableSearch, fn($q) => $q->where('name_customer', 'like', "%{$this->receivableSearch}%"))
+                        ->orderBy($this->receivableSortColumn, $this->receivableSortDirection)
+                        ->paginate($this->receivablePerPage, ['*'], 'receivablePage');
+                @endphp
+                
+                @if ($receivableData->count() > 0)
+                    <div class="overflow-x-auto">
+                        <table class="data-table w-full text-sm">
+                            <thead class="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                                <tr>
+                                    <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors" wire:click="sortReceivable('created_at')">
+                                        <div class="flex items-center gap-1">
+                                            Tanggal
+                                            @if($receivableSortColumn === 'created_at')
+                                                @if($receivableSortDirection === 'asc')
+                                                    <x-heroicon-s-chevron-up class="h-3 w-3 text-amber-500" />
+                                                @else
+                                                    <x-heroicon-s-chevron-down class="h-3 w-3 text-amber-500" />
+                                                @endif
+                                            @endif
+                                        </div>
+                                    </th>
+                                    <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase">No. Invoice</th>
+                                    <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors" wire:click="sortReceivable('name_customer')">
+                                        <div class="flex items-center gap-1">
+                                            Customer
+                                            @if($receivableSortColumn === 'name_customer')
+                                                @if($receivableSortDirection === 'asc')
+                                                    <x-heroicon-s-chevron-up class="h-3 w-3 text-amber-500" />
+                                                @else
+                                                    <x-heroicon-s-chevron-down class="h-3 w-3 text-amber-500" />
+                                                @endif
+                                            @endif
+                                        </div>
+                                    </th>
+                                    <th class="px-4 py-3 text-right text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase">Total</th>
+                                    <th class="px-4 py-3 text-right text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase">DP</th>
+                                    <th class="px-4 py-3 text-right text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase">Piutang</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100 dark:divide-gray-700/50">
+                                @foreach ($receivableData as $invoice)
+                                    <tr>
+                                        <td class="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                            {{ \Carbon\Carbon::parse($invoice->created_at)->format('d/m/Y') }}
+                                        </td>
+                                        <td class="px-4 py-3 font-medium text-gray-900 dark:text-white">
+                                            {{ $invoice->invoice_number }}
+                                        </td>
+                                        <td class="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                            {{ $invoice->name_customer ?? '-' }}
+                                        </td>
+                                        <td class="px-4 py-3 text-right font-medium text-gray-900 dark:text-white">
+                                            Rp {{ number_format($invoice->grand_total, 0, ",", ".") }}
+                                        </td>
+                                        <td class="px-4 py-3 text-right text-amber-600 dark:text-amber-400">
+                                            Rp {{ number_format($invoice->dp ?? 0, 0, ",", ".") }}
+                                        </td>
+                                        <td class="px-4 py-3 text-right font-semibold text-rose-600 dark:text-rose-400">
+                                            Rp {{ number_format($invoice->grand_total - ($invoice->dp ?? 0), 0, ",", ".") }}
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="mt-4 border-t border-gray-100 dark:border-gray-700 pt-4">
+                        {{ $receivableData->links() }}
+                    </div>
+                @else
+                    <div class="flex flex-col items-center justify-center py-6 text-center">
+                        <div class="rounded-full bg-gray-100 p-3 dark:bg-gray-800">
+                            <x-heroicon-o-clock class="h-6 w-6 text-gray-400" />
+                        </div>
+                        <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">Belum ada data piutang pada periode ini</p>
+                    </div>
+                @endif
+            </x-filament::section>
         </div>
     </div>
 </x-filament-panels::page>

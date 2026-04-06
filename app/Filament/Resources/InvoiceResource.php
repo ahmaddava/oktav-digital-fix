@@ -147,11 +147,12 @@ class InvoiceResource extends Resource implements HasShieldPermissions
         // Provide options dynamically using local static cache within the closure
         static $customerOptionsCache = null;
         if ($customerOptionsCache === null) {
-            $customerOptionsCache = Customer::select('nama_customer', 'nomor_customer')
+            $customerOptionsCache = Customer::select('nama_customer', 'nomor_customer', 'email_customer')
                 ->orderBy('nama_customer')
+                ->limit(20)
                 ->get()
                 ->mapWithKeys(fn($customer) => [
-                    $customer->nama_customer => "{$customer->nama_customer} - {$customer->nomor_customer}"
+                    $customer->nama_customer => "{$customer->nama_customer}" . ($customer->nomor_customer ? " | Telp: {$customer->nomor_customer}" : "") . ($customer->email_customer ? " | Email: {$customer->email_customer}" : "")
                 ]);
         }
 
@@ -212,13 +213,17 @@ class InvoiceResource extends Resource implements HasShieldPermissions
                                     ->options($customerOptionsCache) // Use local cache
                                     ->searchable()
                                     ->getSearchResultsUsing(function (string $search) {
-                                        return Customer::where('nama_customer', 'like', $search . '%')
-                                            ->select('nama_customer', 'nomor_customer')
-                                            ->limit(10)
+                                        return Customer::query()
+                                            ->where(function ($query) use ($search) {
+                                                $query->where('nama_customer', 'like', "%{$search}%")
+                                                    ->orWhere('nomor_customer', 'like', "%{$search}%")
+                                                    ->orWhere('email_customer', 'like', "%{$search}%");
+                                            })
+                                            ->limit(15)
                                             ->orderBy('nama_customer')
                                             ->get()
                                             ->mapWithKeys(fn($customer) => [
-                                                $customer->nama_customer => "{$customer->nama_customer} - {$customer->nomor_customer}"
+                                                $customer->nama_customer => "{$customer->nama_customer}" . ($customer->nomor_customer ? " | Telp: {$customer->nomor_customer}" : "") . ($customer->email_customer ? " | Email: {$customer->email_customer}" : "")
                                             ]);
                                     })
                                     ->preload()
@@ -302,7 +307,7 @@ class InvoiceResource extends Resource implements HasShieldPermissions
                                     ->unique(ignoreRecord: true)
                                     ->dehydrated()
                                     ->default($invoiceNumber)
-                                    ->disabled(fn (Get $get) => !$get('is_editing_invoice_number'))
+                                    ->readOnly(fn (Get $get) => !$get('is_editing_invoice_number'))
                                     ->suffixAction(
                                         FormAction::make('unlockInvoiceNumber')
                                             ->icon('heroicon-m-lock-closed')
@@ -670,21 +675,4 @@ class InvoiceResource extends Resource implements HasShieldPermissions
         return 3;
     }
 
-    protected function mutateFormDataBeforeCreate(array $data): array
-    {
-        // Kalkulasi ulang grand total sebelum create
-        $invoiceProducts = $data['invoiceProducts'] ?? [];
-        $data['grand_total'] = self::calculateGrandTotal($invoiceProducts);
-
-        return $data;
-    }
-
-    protected function mutateFormDataBeforeSave(array $data): array
-    {
-        // Kalkulasi ulang grand total sebelum save
-        $invoiceProducts = $data['invoiceProducts'] ?? [];
-        $data['grand_total'] = self::calculateGrandTotal($invoiceProducts);
-
-        return $data;
-    }
 }

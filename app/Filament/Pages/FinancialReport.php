@@ -39,6 +39,10 @@ class FinancialReport extends Page implements HasForms, HasActions
     // Pagination per page settings
     public int $incomePerPage = 5;
     public int $expensePerPage = 5;
+    public int $receivablePerPage = 5;
+    public string $receivableSearch = '';
+    public string $receivableSortColumn = 'created_at';
+    public string $receivableSortDirection = 'desc';
 
     public function mount(): void
     {
@@ -136,10 +140,14 @@ class FinancialReport extends Page implements HasForms, HasActions
 
     public function updated($propertyName): void
     {
-        if (in_array($propertyName, ['startDate', 'endDate', 'incomePerPage', 'expensePerPage'])) {
+        if (in_array($propertyName, ['startDate', 'endDate', 'incomePerPage', 'expensePerPage', 'receivablePerPage', 'receivableSearch'])) {
             if (in_array($propertyName, ['startDate', 'endDate'])) {
                 $this->resetPage('incomePage');
                 $this->resetPage('expensePage');
+                $this->resetPage('receivablePage');
+            }
+            if ($propertyName === 'receivableSearch') {
+                $this->resetPage('receivablePage');
             }
             $this->calculateStats();
         }
@@ -162,7 +170,9 @@ class FinancialReport extends Page implements HasForms, HasActions
 
         $this->totalIncome = $incomeQuery->sum('grand_total');
         $this->totalExpense = $expenseQuery->sum('amount');
-        $this->totalReceivables = Invoice::where('status', 'unpaid')->sum('grand_total');
+        $this->totalReceivables = Invoice::where('status', 'unpaid')
+            ->whereBetween('created_at', [$start, $end])
+            ->sum('grand_total');
         $this->balance = $this->totalIncome - $this->totalExpense;
     }
 
@@ -271,5 +281,15 @@ class FinancialReport extends Page implements HasForms, HasActions
             ->modalHeading('Detail Pengeluaran')
             ->modalSubmitAction(false)
             ->modalCancelActionLabel('Tutup');
+    }
+
+    public function sortReceivable(string $column): void
+    {
+        if ($this->receivableSortColumn === $column) {
+            $this->receivableSortDirection = $this->receivableSortDirection === 'asc' ? 'desc' : 'asc';
+        } else {
+            $this->receivableSortColumn = $column;
+            $this->receivableSortDirection = 'asc';
+        }
     }
 }
